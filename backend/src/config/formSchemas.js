@@ -1,9 +1,9 @@
-// PRD sections 5A.1/5A.2 ("Required Form Fields" / "Required Supporting
-// Documents") both say "Pick from the Attached file shared" - that
-// attachment was never actually included with the PRD. The field list below
-// is a reasonable placeholder based on standard CRVS birth-registration
-// practice (matches OpenCRVS's default birth form shape) and MUST be
-// reconciled against the real field list once someone tracks it down.
+// PRD sections 5A-5F ("Required Form Fields" / "Required Supporting
+// Documents") all say "Pick from the Attached file shared" - that
+// attachment was never actually included with the PRD. The field lists
+// below are reasonable placeholders based on standard CRVS practice
+// (matches OpenCRVS's default form shapes) and MUST be reconciled against
+// the real field lists once someone tracks them down.
 export const FORM_SCHEMAS = {
   early_birth: {
     requiredFields: [
@@ -18,6 +18,21 @@ export const FORM_SCHEMAS = {
       "informantPhone",
     ],
     requiredDocuments: ["hospitalBirthNotification", "parentGhanaCardCopy"],
+  },
+  // PRD 5C: governed by Section 22-29 of Act 1027 (2020); must be
+  // registered before a burial permit is issued (not enforced here - no
+  // burial permit workflow exists yet).
+  death: {
+    requiredFields: [
+      "deceasedFullName",
+      "dateOfDeath",
+      "placeOfDeath",
+      "causeOfDeath",
+      "informantFullName",
+      "informantRelationshipToDeceased",
+      "informantPhone",
+    ],
+    requiredDocuments: ["medicalCertificateOfCause", "deceasedIdCopy"],
   },
 };
 

@@ -46,7 +46,7 @@ All authenticated citizen endpoints take `Authorization: Bearer <accessToken>`.
 
 ## Applications
 
-- `GET /applications/event-types` (public) → catalogue of all 6 PRD event types with fees/SLA durations. Only `early_birth` has `formSupported: true` right now - the rest are listed but rejected on submit.
+- `GET /applications/event-types` (public) → catalogue of all 6 PRD event types with fees/SLA durations. Only `early_birth` and `death` have `formSupported: true` right now - the rest are listed but rejected on submit.
 - `POST /applications` `{ eventType, tier }` → creates a `DRAFT` application
 - `GET /applications` → list own applications, optional `?status=`
 - `GET /applications/:id` → full detail incl. `documents[]`
@@ -56,18 +56,23 @@ All authenticated citizen endpoints take `Authorization: Bearer <accessToken>`.
 - `POST /applications/:id/submit` → validates required fields/documents, moves `DRAFT` → `PAYMENT_PENDING`
 - `POST /applications/:id/resubmit` → moves `CORRECTIONS_REQUIRED` → `UNDER_REVIEW` after the citizen has edited
 
-### Early Birth Registration form fields (v1 placeholder)
+### Form fields (v1 placeholders)
 
-**The PRD's own field list (sections 5A.1/5A.2) was never attached** - it
-just says "Pick from the Attached file shared" with no attachment. The
-fields below are a reasonable placeholder pending the real list:
+**The PRD's own field lists (sections 5A-5F) were never attached** - they
+just say "Pick from the Attached file shared" with no attachment. The
+fields below are reasonable placeholders pending the real lists, defined
+in `backend/src/config/formSchemas.js`:
 
-Required `formData` fields: `childFullName`, `childSex`, `childDateOfBirth`,
-`placeOfBirth`, `motherFullName`, `motherGhanaCardNumber`,
-`informantFullName`, `informantRelationshipToChild`, `informantPhone`.
+**early_birth** - required `formData`: `childFullName`, `childSex`,
+`childDateOfBirth`, `placeOfBirth`, `motherFullName`,
+`motherGhanaCardNumber`, `informantFullName`,
+`informantRelationshipToChild`, `informantPhone`. Required documents:
+`hospitalBirthNotification`, `parentGhanaCardCopy`.
 
-Required documents (`fieldName` values): `hospitalBirthNotification`,
-`parentGhanaCardCopy`.
+**death** - required `formData`: `deceasedFullName`, `dateOfDeath`,
+`placeOfDeath`, `causeOfDeath`, `informantFullName`,
+`informantRelationshipToDeceased`, `informantPhone`. Required documents:
+`medicalCertificateOfCause`, `deceasedIdCopy`.
 
 ## Payments (Npontu Pay)
 
@@ -124,8 +129,9 @@ Dev seed accounts (non-production only, see `backend/src/db/index.js`):
 Deliberately out of scope for this v1 slice - flag before assuming any of
 this exists:
 
-- Only **Early Birth Registration** has a real form/validation. The other 5
-  event types are listed in the catalogue but rejected on submit.
+- Only **Early Birth Registration** and **Death Registration** have real
+  forms/validation. The other 4 event types are listed in the catalogue
+  but rejected on submit.
 - No **dynamic workflow engine** (PRD section 10) - no configurable
   per-stage SLAs, no auto-escalation, no auto-advance-to-certificate safety
   net. Application status is a simplified linear model instead.

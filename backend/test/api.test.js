@@ -255,3 +255,53 @@ test("staff admin: fee change requires a reason and validates express > standard
   assert.equal(ok.status, 200);
   assert.equal(ok.body.standardFee, 8);
 });
+
+test("applications: a second event type (death) works through the same generic routes", async () => {
+  const eventTypes = await get("/applications/event-types");
+  const death = eventTypes.body.find((e) => e.eventType === "death");
+  assert.equal(death.formSupported, true);
+
+  const created = await post("/applications", { eventType: "death", tier: "express" }, state.accessToken);
+  assert.equal(created.status, 201);
+  const applicationId = created.body.id;
+
+  const submitEmpty = await post(`/applications/${applicationId}/submit`, {}, state.accessToken);
+  assert.equal(submitEmpty.status, 400);
+  assert.equal(submitEmpty.body.error.code, "INCOMPLETE_FORM");
+  assert.ok(submitEmpty.body.error.missingFields.includes("causeOfDeath"));
+
+  await patch(
+    `/applications/${applicationId}`,
+    {
+      formData: {
+        deceasedFullName: "Yaw Boateng",
+        dateOfDeath: "2026-06-20",
+        placeOfDeath: "Komfo Anokye Teaching Hospital",
+        causeOfDeath: "Certified by attending physician",
+        informantFullName: "Kwame Mensah",
+        informantRelationshipToDeceased: "Son",
+        informantPhone: "244111222",
+      },
+    },
+    state.accessToken
+  );
+
+  for (const fieldName of ["medicalCertificateOfCause", "deceasedIdCopy"]) {
+    const form = new FormData();
+    form.append("fieldName", fieldName);
+    form.append("file", new Blob(["test file bytes"], { type: "application/pdf" }), "doc.pdf");
+    const res = await fetch(`${baseUrl}/applications/${applicationId}/documents`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${state.accessToken}` },
+      body: form,
+    });
+    assert.equal(res.status, 201);
+  }
+
+  const submitted = await post(`/applications/${applicationId}/submit`, {}, state.accessToken);
+  assert.equal(submitted.status, 200);
+
+  const initiate = await post("/payments/initiate", { applicationId, method: "momo" }, state.accessToken);
+  const confirm = await post("/payments/mock-confirm", { paymentId: initiate.body.paymentId }, state.accessToken);
+  assert.match(confirm.body.trackingId, /^BDR-\d{4}-DR-\d{6}$/);
+});

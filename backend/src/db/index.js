@@ -17,12 +17,12 @@ db.exec(schema);
 
 // Seed the six PRD event types (9.1 fee/duration config is admin-editable in
 // principle; these are placeholder defaults per OQ-01/OQ-02 - the real fee
-// schedule is still an open question in the PRD). Only early_birth ships
-// with a real application form in this v1 slice.
+// schedule is still an open question in the PRD). Only early_birth and
+// death ship with a real application form in this v1 slice.
 const seedEventTypes = [
   { event_type: "early_birth", label: "Early Birth Registration", standard_fee: 5, express_fee: 50, standard_duration_days: 15, express_duration_days: 3, express_enabled: 1, form_supported: 1 },
   { event_type: "late_birth", label: "Late Birth Registration", standard_fee: 20, express_fee: 100, standard_duration_days: 20, express_duration_days: 5, express_enabled: 1, form_supported: 0 },
-  { event_type: "death", label: "Death Registration", standard_fee: 5, express_fee: 50, standard_duration_days: 15, express_duration_days: 3, express_enabled: 1, form_supported: 0 },
+  { event_type: "death", label: "Death Registration", standard_fee: 5, express_fee: 50, standard_duration_days: 15, express_duration_days: 3, express_enabled: 1, form_supported: 1 },
   { event_type: "foetal_death", label: "Foetal Death Registration", standard_fee: 5, express_fee: 50, standard_duration_days: 15, express_duration_days: 3, express_enabled: 1, form_supported: 0 },
   { event_type: "adoption", label: "Adoption Registration", standard_fee: 30, express_fee: 150, standard_duration_days: 20, express_duration_days: 7, express_enabled: 1, form_supported: 0 },
   { event_type: "surrogacy", label: "Surrogacy Birth Registration", standard_fee: 30, express_fee: 150, standard_duration_days: 20, express_duration_days: 7, express_enabled: 1, form_supported: 0 },
@@ -33,6 +33,10 @@ const insertEventType = db.prepare(`
     (event_type, label, standard_fee, express_fee, standard_duration_days, express_duration_days, express_enabled, form_supported)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `);
+// form_supported reflects code capability, not admin config, so keep it in
+// sync even for rows that already existed (e.g. from a DB created before
+// this event type had a real form) without touching admin-edited fees.
+const syncFormSupported = db.prepare(`UPDATE event_type_config SET form_supported = ? WHERE event_type = ?`);
 for (const et of seedEventTypes) {
   insertEventType.run(
     et.event_type,
@@ -44,6 +48,7 @@ for (const et of seedEventTypes) {
     et.express_enabled,
     et.form_supported
   );
+  syncFormSupported.run(et.form_supported, et.event_type);
 }
 
 // Dev convenience: back-office user provisioning (PRD 9.2) isn't built as an

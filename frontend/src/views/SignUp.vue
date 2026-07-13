@@ -224,8 +224,8 @@ async function submitPin() {
   try {
     // TODO: wire to Laravel API — POST /api/auth/register/pin (hashed server-side)
     await new Promise((r) => setTimeout(r, 800))
-    // Account created (PRD 4.1 step 7). Dashboard is not built yet — go to login.
-    router.push({ name: 'login' })
+    // Account created (PRD 4.1 step 7) — land on the citizen dashboard.
+    router.push({ name: 'dashboard' })
   } finally {
     creatingPin.value = false
   }

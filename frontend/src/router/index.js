@@ -12,6 +12,16 @@ const routes = [
     component: () => import('../views/SignUp.vue'), // placeholder until login page is built
   },
   {
+    path: '/dashboard',
+    name: 'dashboard',
+    component: () => import('../views/Dashboard.vue'),
+  },
+  {
+    path: '/track',
+    name: 'track',
+    component: () => import('../views/Dashboard.vue'), // placeholder until tracking page is built
+  },
+  {
     path: '/',
     redirect: '/signup',
   },

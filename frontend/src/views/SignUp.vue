@@ -1,8 +1,16 @@
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import OtpInput from '../components/OtpInput.vue'
 
 const router = useRouter()
+
+// "24 000 0000" grouped display of the entered phone number.
+const maskedPhone = computed(() => {
+  const p = form.phone
+  if (!p) return ''
+  return `+233 ${p.replace(/(\d{2})(\d{3})(\d{0,4}).*/, '$1 $2 $3').trim()}`
+})
 
 const slides = [
   {
@@ -58,6 +66,9 @@ function goToSlide(index) {
 onMounted(startAutoplay)
 onBeforeUnmount(stopAutoplay)
 
+// Registration is a single route with staged steps (matches the reference site).
+const step = ref('contact') // 'contact' | 'otp'
+
 const form = reactive({
   phone: '',
   email: '',
@@ -89,11 +100,66 @@ async function onSubmit() {
   try {
     // TODO: wire to Laravel API — POST /api/auth/register/send-otp
     await new Promise((r) => setTimeout(r, 800))
-    router.push({ name: 'login' })
+    goToOtp()
   } finally {
     submitting.value = false
   }
 }
+
+// --- OTP verification step ---
+const otp = ref('')
+const otpError = ref('')
+const verifying = ref(false)
+const resendSeconds = ref(0)
+let resendTimer = null
+
+function startResendCountdown() {
+  resendSeconds.value = 60
+  clearInterval(resendTimer)
+  resendTimer = setInterval(() => {
+    resendSeconds.value -= 1
+    if (resendSeconds.value <= 0) clearInterval(resendTimer)
+  }, 1000)
+}
+
+function goToOtp() {
+  step.value = 'otp'
+  otp.value = ''
+  otpError.value = ''
+  startResendCountdown()
+}
+
+function backToContact() {
+  step.value = 'contact'
+  clearInterval(resendTimer)
+}
+
+async function resendCode() {
+  if (resendSeconds.value > 0) return
+  // TODO: wire to Laravel API — POST /api/auth/register/send-otp (resend)
+  otp.value = ''
+  otpError.value = ''
+  startResendCountdown()
+}
+
+async function verifyOtp() {
+  if (otp.value.length !== 6) {
+    otpError.value = 'Enter the 6-digit code sent to your phone.'
+    return
+  }
+  verifying.value = true
+  otpError.value = ''
+  try {
+    // TODO: wire to Laravel API — POST /api/auth/register/verify-otp
+    await new Promise((r) => setTimeout(r, 800))
+    // Next: profile setup + PIN creation (PRD 4.1 steps 5-7).
+    router.push({ name: 'login' })
+  } finally {
+    verifying.value = false
+  }
+}
+
+onBeforeUnmount(() => clearInterval(resendTimer))
 </script>
 
 <template>
@@ -110,54 +176,90 @@ async function onSubmit() {
       </header>
 
       <div class="form-wrap">
-        <h2 class="form-title">Create an Account</h2>
-        <p class="form-help">
-          Enter your Ghana mobile number and email address. We will send a 6-digit verification code to your phone.
-        </p>
-
-        <form @submit.prevent="onSubmit" novalidate>
-          <label class="field-label" for="phone">Phone Number</label>
-          <div class="phone-input" :class="{ 'has-error': errors.phone }">
-            <span class="phone-prefix">
-              <span class="flag">🇬🇭</span> +233
-            </span>
-            <input
-              id="phone"
-              v-model="form.phone"
-              type="tel"
-              placeholder="24 000 0000"
-              inputmode="numeric"
-              maxlength="10"
-              @input="form.phone = form.phone.replace(/\D/g, '')"
-            />
-          </div>
-          <p class="field-hint" v-if="!errors.phone">
-            Enter digits only — e.g. <strong>24 000 0000</strong> (no +233 or leading 0)
+        <!-- Step 1: contact details -->
+        <template v-if="step === 'contact'">
+          <h2 class="form-title">Create an Account</h2>
+          <p class="form-help">
+            Enter your Ghana mobile number and email address. We will send a 6-digit verification code to your phone.
           </p>
-          <p class="field-error" v-else>{{ errors.phone }}</p>
 
-          <label class="field-label" for="email">Email Address</label>
-          <input
-            id="email"
-            v-model="form.email"
-            type="email"
-            class="text-input"
-            :class="{ 'has-error': errors.email }"
-            placeholder="Enter your email address"
-          />
-          <p class="field-hint" v-if="!errors.email">Your verification code will be sent here.</p>
-          <p class="field-error" v-else>{{ errors.email }}</p>
+          <form @submit.prevent="onSubmit" novalidate>
+            <label class="field-label" for="phone">Phone Number</label>
+            <div class="phone-input" :class="{ 'has-error': errors.phone }">
+              <span class="phone-prefix">
+                <span class="flag">🇬🇭</span> +233
+              </span>
+              <input
+                id="phone"
+                v-model="form.phone"
+                type="tel"
+                placeholder="24 000 0000"
+                inputmode="numeric"
+                maxlength="10"
+                @input="form.phone = form.phone.replace(/\D/g, '')"
+              />
+            </div>
+            <p class="field-hint" v-if="!errors.phone">
+              Enter digits only — e.g. <strong>24 000 0000</strong> (no +233 or leading 0)
+            </p>
+            <p class="field-error" v-else>{{ errors.phone }}</p>
 
-          <button type="submit" class="btn-primary" :disabled="submitting">
-            <span v-if="!submitting">Send verification code</span>
-            <span v-else>Sending…</span>
-          </button>
-        </form>
+            <label class="field-label" for="email">Email Address</label>
+            <input
+              id="email"
+              v-model="form.email"
+              type="email"
+              class="text-input"
+              :class="{ 'has-error': errors.email }"
+              placeholder="Enter your email address"
+            />
+            <p class="field-hint" v-if="!errors.email">Your verification code will be sent here.</p>
+            <p class="field-error" v-else>{{ errors.email }}</p>
 
-        <p class="switch-auth">
-          Already have an Account?
-          <router-link to="/login">Sign in Now</router-link>
-        </p>
+            <button type="submit" class="btn-primary" :disabled="submitting">
+              <span v-if="!submitting">Send verification code</span>
+              <span v-else>Sending…</span>
+            </button>
+          </form>
+
+          <p class="switch-auth">
+            Already have an Account?
+            <router-link to="/login">Sign in Now</router-link>
+          </p>
+        </template>
+
+        <!-- Step 2: OTP verification -->
+        <template v-else-if="step === 'otp'">
+          <button type="button" class="back-link" @click="backToContact">← Change number</button>
+          <h2 class="form-title">Verify your number</h2>
+          <p class="form-help">
+            Enter the 6-digit code we sent by SMS to <strong>{{ maskedPhone }}</strong>. The code is valid for 10 minutes.
+          </p>
+
+          <form @submit.prevent="verifyOtp" novalidate>
+            <label class="field-label">Verification Code</label>
+            <OtpInput v-model="otp" :has-error="!!otpError" @complete="verifyOtp" />
+            <p class="field-error" v-if="otpError">{{ otpError }}</p>
+
+            <button type="submit" class="btn-primary" :disabled="verifying">
+              <span v-if="!verifying">Verify &amp; Continue</span>
+              <span v-else>Verifying…</span>
+            </button>
+          </form>
+
+          <p class="switch-auth">
+            Didn't get the code?
+            <button
+              type="button"
+              class="link-button"
+              :disabled="resendSeconds > 0"
+              @click="resendCode"
+            >
+              <span v-if="resendSeconds > 0">Resend in {{ resendSeconds }}s</span>
+              <span v-else>Resend code</span>
+            </button>
+          </p>
+        </template>
       </div>
     </div>
 
@@ -424,6 +526,36 @@ async function onSubmit() {
   color: var(--brand-green);
   font-weight: 600;
   text-decoration: none;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--brand-green);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.link-button:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.back-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-bottom: 16px;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.back-link:hover {
+  color: var(--brand-green);
 }
 
 .info-panel {

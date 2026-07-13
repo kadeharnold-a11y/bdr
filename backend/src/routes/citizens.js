@@ -1,72 +1,42 @@
 import { Router } from "express";
+import { db } from "../db/index.js";
+import { requireCitizenAuth } from "../middleware/auth.js";
 
 const router = Router();
+router.use(requireCitizenAuth);
 
-// Auth routes. Real product uses PHONE + 6-DIGIT PIN for login (confirmed by
-// inspecting the live site's /api/auth/login call), NOT phone+password as an
-// earlier draft of shared/api-contract.md assumed. Registration still sets up
-// a PIN (see PRD 4.1). Update the contract doc to match this if it hasn't been
-// updated yet.
-
-// Register - step 1: phone number, start OTP
-router.post("/register", (req, res) => {
-    const { phone } = req.body;
-    // TODO: validate Ghana mobile format, check phone not already registered,
-              // send OTP via SMS gateway (Hubtel or equivalent - see PRD 13).
-              res.json({ otpSentTo: phone, otpExpiresInSeconds: 600, registrationToken: "reg_stub" });
+router.get("/me", (req, res) => {
+  const citizen = db.prepare(`SELECT id, phone, email, full_name, ghana_card_number, date_of_birth, gender, nia_status, created_at FROM citizens WHERE id = ?`).get(req.citizenId);
+  if (!citizen) return res.status(404).json({ error: { code: "NOT_FOUND", message: "Citizen not found" } });
+  res.json(citizen);
 });
 
-// Register - step 2: verify OTP
-router.post("/register/verify-otp", (req, res) => {
-    // TODO: validate OTP against registrationToken.
-              res.json({ profileToken: "prof_stub" });
+router.patch("/me", (req, res) => {
+  const { email } = req.body || {};
+  db.prepare(`UPDATE citizens SET email = ? WHERE id = ?`).run(email ?? null, req.citizenId);
+  const citizen = db.prepare(`SELECT id, phone, email, full_name, ghana_card_number, date_of_birth, gender, nia_status, created_at FROM citizens WHERE id = ?`).get(req.citizenId);
+  res.json(citizen);
 });
 
-// Register - step 3: profile + Ghana Card / NIA check
-router.post("/register/profile", (req, res) => {
-    // TODO: call NIA API. Per PRD design note (4.1): do NOT block registration
-              // if NIA is unavailable or card not yet in NIA database - flag for manual
-              // review at first in-person appointment instead.
-              res.json({
-                    nia: { status: "UNAVAILABLE", dateOfBirth: null, gender: null },
-                    profileToken: req.body.profileToken || "prof_stub",
-              });
-});
-
-// Register - step 4: set 6-digit PIN, create account
-router.post("/register/pin", (req, res) => {
-    // TODO: hash PIN with bcrypt, create citizen record, issue JWTs.
-              res.status(201).json({
-                    citizenId: "cit_stub",
-                    accessToken: "jwt_stub",
-                    refreshToken: "jwt_stub",
-                    expiresIn: 3600,
-              });
-});
-
-// Login - step 1: phone + PIN (matches real site, not password)
-router.post("/login", (req, res) => {
-    const { phone, pin } = req.body;
-    // TODO: verify PIN against stored hash for this phone number, then send OTP
-              // ('Send verification code' on the real login screen).
-              res.json({ otpSentTo: phone, loginToken: "log_stub" });
-});
-
-// Login - step 2: verify OTP, issue tokens
-router.post("/login/verify-otp", (req, res) => {
-    // TODO: validate OTP, issue JWTs.
-              res.json({ citizenId: "cit_stub", accessToken: "jwt_stub", refreshToken: "jwt_stub", expiresIn: 3600 });
-});
-
-// Dashboard - requires auth middleware once built (attaches req.citizenId)
+// PRD 4.3: dashboard should let a citizen understand every application's
+// status within 5 seconds - active/draft/completed split, done here rather
+// than left for the frontend to derive from a flat list.
 router.get("/me/dashboard", (req, res) => {
-    // TODO: replace with real query once auth middleware is in place.
-             res.json({
-                   activeApplications: [],
-                   drafts: [],
-                   completedApplications: [],
-                   notifications: [],
-             });
+  const rows = db.prepare(`
+    SELECT id, tracking_id, event_type, tier, status, fee_amount, fee_currency, sla_deadline, last_saved_at, created_at, submitted_at
+    FROM applications WHERE citizen_id = ? ORDER BY last_saved_at DESC
+  `).all(req.citizenId);
+
+  const drafts = rows.filter((a) => a.status === "DRAFT" || a.status === "PAYMENT_PENDING");
+  const completed = rows.filter((a) => a.status === "COMPLETED" || a.status === "REJECTED");
+  const active = rows.filter((a) => !drafts.includes(a) && !completed.includes(a));
+
+  res.json({
+    activeApplications: active,
+    drafts,
+    completedApplications: completed,
+    notifications: [], // TODO: notifications table not built yet in this v1 slice.
+  });
 });
 
 export default router;

@@ -17,3 +17,8 @@ prd_extracted.txt
 # OS / editor
 .DS_Store
 Thumbs.db
+
+# Backend runtime data
+backend/.env
+backend/data/
+backend/uploads/

@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Root-level tooling artifacts (playwright install helper for skillui)
+/package.json
+/package-lock.json
+
+# Confidential — internal PRD, must not be published
+HBDRP_PRD_v2.pdf
+
+# Temp / generated
+prd_extracted.txt
+
+# Local machine-specific Claude settings
+.claude/settings.local.json
+
+# OS / editor
+.DS_Store
+Thumbs.db

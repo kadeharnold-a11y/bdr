@@ -1,0 +1,102 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "core": {
+    "text-primary": {
+      "value": "#ffffff",
+      "role": "text-primary",
+      "name": "bs-heading-color"
+    },
+    "text-muted": {
+      "value": "#98a4ae",
+      "role": "text-muted",
+      "name": "bs-body-color"
+    },
+    "background": {
+      "value": "#006b3f",
+      "role": "background",
+      "name": "bs-primary"
+    },
+    "surface": {
+      "value": "#1a2537",
+      "role": "surface",
+      "name": "bs-card-bg"
+    },
+    "border": {
+      "value": "#29343d",
+      "role": "border",
+      "name": "bs-dark-text-emphasis"
+    },
+    "accent": {
+      "value": "#635bff",
+      "role": "accent",
+      "name": "bs-primary"
+    }
+  },
+  "status": {
+    "warning": {
+      "value": "#fcd116",
+      "role": "warning"
+    },
+    "success": {
+      "value": "#005233",
+      "role": "success"
+    },
+    "danger": {
+      "value": "#cc0001",
+      "role": "danger"
+    }
+  },
+  "extended": {
+    "bs-muted": {
+      "value": "#526b7a",
+      "role": "unknown",
+      "name": "bs-muted"
+    },
+    "bs-accordion-btn-color": {
+      "value": "#eaeff4",
+      "role": "info",
+      "name": "bs-accordion-btn-color"
+    },
+    "color-111c2d": {
+      "value": "#111c2d",
+      "role": "unknown"
+    },
+    "bs-table-border-color": {
+      "value": "#3b5166",
+      "role": "unknown",
+      "name": "bs-table-border-color"
+    },
+    "color-64748b": {
+      "value": "#64748b",
+      "role": "unknown"
+    },
+    "color-7a3800": {
+      "value": "#7a3800",
+      "role": "unknown"
+    },
+    "bs-warning": {
+      "value": "#f8c20a",
+      "role": "unknown",
+      "name": "bs-warning"
+    },
+    "bs-btn-border-color": {
+      "value": "#0a2540",
+      "role": "unknown",
+      "name": "bs-btn-border-color"
+    },
+    "bs-border-color": {
+      "value": "#e0e6eb",
+      "role": "unknown",
+      "name": "bs-border-color"
+    },
+    "bdr-muted": {
+      "value": "#7c8fac",
+      "role": "unknown",
+      "name": "bdr-muted"
+    }
+  },
+  "meta": {
+    "theme": "dark",
+    "extracted": "2026-07-13"
+  }
+}

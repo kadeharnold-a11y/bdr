@@ -1,0 +1,45 @@
+@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap');
+
+:root {
+  --brand-green: #006b3f;
+  --brand-green-dark: #00532f;
+  --brand-gold: #fcd116;
+  --brand-red: #ce1126;
+
+  --surface: #ffffff;
+  --background: #f7f8f9;
+  --border: #e5e7eb;
+  --text-primary: #1a2537;
+  --text-muted: #6b7280;
+  --danger: #cc0001;
+
+  --radius: 8px;
+  --radius-lg: 14px;
+
+  --font-heading: 'Public Sans', sans-serif;
+  --font-body: 'Manrope', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  background: var(--background);
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-heading);
+  margin: 0;
+}
+
+button, input {
+  font-family: var(--font-body);
+}

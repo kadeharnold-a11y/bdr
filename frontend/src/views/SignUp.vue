@@ -1,6 +1,7 @@
 <script setup>
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { api } from '../lib/api'
 
 const router = useRouter()
 
@@ -87,9 +88,28 @@ async function onSubmit() {
   if (!validate()) return
   submitting.value = true
   try {
-    // TODO: wire to Laravel API — POST /api/auth/register/send-otp
-    await new Promise((r) => setTimeout(r, 800))
+    const { data } = await api.post('/auth/register/send-otp', {
+      phone: form.phone,
+      email: form.email || undefined,
+    })
+    // Stashed for whichever screen picks up OTP entry next - there's no
+    // verify-otp UI yet, this just proves the real request/response works.
+    sessionStorage.setItem('hbdrp_registration_token', data.registrationToken)
     router.push({ name: 'login' })
+  } catch (err) {
+    const code = err.response?.data?.error?.code
+    if (code === 'PHONE_ALREADY_REGISTERED') {
+      // PRD 4.1 step 4: an existing account redirects straight to login.
+      router.push({ name: 'login' })
+    } else if (code === 'INVALID_PHONE') {
+      errors.phone = 'Enter a valid Ghana mobile number.'
+    } else if (code === 'INVALID_EMAIL') {
+      errors.email = 'Enter a valid email address.'
+    } else if (code === 'TOO_MANY_REQUESTS') {
+      errors.phone = 'Too many attempts. Please wait a few minutes and try again.'
+    } else {
+      errors.phone = 'Something went wrong. Please try again.'
+    }
   } finally {
     submitting.value = false
   }

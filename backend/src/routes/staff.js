@@ -3,13 +3,14 @@ import bcrypt from "bcryptjs";
 import { db, audit } from "../db/index.js";
 import { requireStaffAuth } from "../middleware/auth.js";
 import { issueStaffTokens } from "../utils/tokens.js";
+import { staffLoginLimiter } from "../middleware/rateLimit.js";
 
 const router = Router();
 
 // PRD 9.2 step 6: 2FA is mandatory for all back-office users. Not implemented
 // in this v1 slice (no back-office admin UI to provision users through
 // either - see the seeding note in db/index.js) - this is password-only.
-router.post("/login", async (req, res) => {
+router.post("/login", staffLoginLimiter, async (req, res) => {
   const { staffId, password } = req.body || {};
   const staff = db.prepare(`SELECT * FROM staff_users WHERE staff_id = ? AND active = 1`).get(staffId);
   if (!staff) return res.status(401).json({ error: { code: "INVALID_CREDENTIALS", message: "Staff ID or password is incorrect" } });
@@ -22,6 +23,61 @@ router.post("/login", async (req, res) => {
 });
 
 router.use(requireStaffAuth());
+
+// PRD 9.1: admin-managed fee/duration/tier config, no code changes needed.
+// Changes apply to new applications immediately; in-progress applications
+// keep whatever fee_amount/tier they already locked in (PRD 9.1 note).
+router.get("/admin/event-types", requireStaffAuth(["ADMIN"]), (req, res) => {
+  const rows = db.prepare(`SELECT * FROM event_type_config`).all();
+  res.json(rows.map(serializeEventTypeConfig));
+});
+
+router.patch("/admin/event-types/:eventType", requireStaffAuth(["ADMIN"]), (req, res) => {
+  const config = db.prepare(`SELECT * FROM event_type_config WHERE event_type = ?`).get(req.params.eventType);
+  if (!config) return res.status(404).json({ error: { code: "NOT_FOUND", message: "Unknown event type" } });
+
+  const { standardFee, expressFee, standardDurationDays, expressDurationDays, expressEnabled, reason } = req.body || {};
+  // PRD 9.1.1: "Fee Change Reason" is a required audit-trail field for any fee change.
+  if ((standardFee !== undefined || expressFee !== undefined) && !reason) {
+    return res.status(400).json({ error: { code: "REASON_REQUIRED", message: "A reason is required when changing fees" } });
+  }
+
+  const next = {
+    standard_fee: standardFee ?? config.standard_fee,
+    express_fee: expressFee ?? config.express_fee,
+    standard_duration_days: standardDurationDays ?? config.standard_duration_days,
+    express_duration_days: expressDurationDays ?? config.express_duration_days,
+    express_enabled: expressEnabled !== undefined ? (expressEnabled ? 1 : 0) : config.express_enabled,
+  };
+
+  // PRD 9.1.1/9.1.2 validation rules.
+  if (next.standard_fee <= 0) {
+    return res.status(400).json({ error: { code: "INVALID_FEE", message: "Standard fee must be greater than 0" } });
+  }
+  if (next.express_fee <= next.standard_fee) {
+    return res.status(400).json({ error: { code: "INVALID_FEE", message: "Express fee must be greater than the standard fee" } });
+  }
+  if (next.express_duration_days >= next.standard_duration_days) {
+    return res.status(400).json({ error: { code: "INVALID_DURATION", message: "Express duration must be less than standard duration" } });
+  }
+
+  db.prepare(`
+    UPDATE event_type_config
+    SET standard_fee = ?, express_fee = ?, standard_duration_days = ?, express_duration_days = ?, express_enabled = ?
+    WHERE event_type = ?
+  `).run(next.standard_fee, next.express_fee, next.standard_duration_days, next.express_duration_days, next.express_enabled, req.params.eventType);
+
+  audit({
+    actorType: "staff",
+    actorId: req.staffId,
+    action: "EVENT_TYPE_CONFIG_UPDATED",
+    entityType: "event_type_config",
+    entityId: req.params.eventType,
+    details: { before: config, after: next, reason },
+  });
+
+  res.json(serializeEventTypeConfig(db.prepare(`SELECT * FROM event_type_config WHERE event_type = ?`).get(req.params.eventType)));
+});
 
 // PRD 11.1: dual-lane queue (Standard / Express), SLA-coloured. The full
 // stage-by-stage workflow engine (PRD 10) isn't built - this is a
@@ -149,6 +205,19 @@ function serializeQueueItem(row) {
     slaPercentRemaining: slaPercentRemaining(row),
     submittedAt: row.submitted_at,
     createdAt: row.created_at,
+  };
+}
+
+function serializeEventTypeConfig(row) {
+  return {
+    eventType: row.event_type,
+    label: row.label,
+    standardFee: row.standard_fee,
+    expressFee: row.express_fee,
+    standardDurationDays: row.standard_duration_days,
+    expressDurationDays: row.express_duration_days,
+    expressEnabled: !!row.express_enabled,
+    formSupported: !!row.form_supported,
   };
 }
 

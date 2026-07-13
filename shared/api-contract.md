@@ -109,6 +109,16 @@ Delivery` - collapsed here; see "Known gaps".)
 Dev seed accounts (non-production only, see `backend/src/db/index.js`):
 `ADM-001` / `OFF-001` / `SUP-001` / `FIN-001`, all password `changeme123`.
 
+### Admin config (PRD 9.1, ADMIN role only)
+
+- `GET /staff/admin/event-types` → full config per event type (fees, SLA durations, express toggle)
+- `PATCH /staff/admin/event-types/:eventType` `{ standardFee?, expressFee?, standardDurationDays?, expressDurationDays?, expressEnabled?, reason? }` → updates config; `reason` is required whenever a fee changes (PRD 9.1.1 "Fee Change Reason"). Validates `expressFee > standardFee` and `expressDurationDays < standardDurationDays`. Changes only affect new applications - in-flight ones keep their locked-in fee/tier.
+
+## Security notes
+
+- CORS is restricted to `FRONTEND_ORIGIN` (comma-separated list, defaults to `http://localhost:5173`) - requests from other origins are rejected.
+- OTP-send, OTP-verify, citizen login, and staff login are all rate-limited (see `backend/src/middleware/rateLimit.js`) to slow down SMS-bombing and brute-force attempts.
+
 ## Known gaps vs. the full PRD
 
 Deliberately out of scope for this v1 slice - flag before assuming any of

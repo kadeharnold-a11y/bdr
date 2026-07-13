@@ -16,7 +16,25 @@ import trackingRouter from "./routes/tracking.js";
 import staffRouter from "./routes/staff.js";
 
 const app = express();
-app.use(cors());
+
+// Restrict to the known frontend origin(s) rather than reflecting any
+// origin. FRONTEND_ORIGIN supports a comma-separated list for multiple
+// environments (local Vite dev, staging, prod).
+const allowedOrigins = (process.env.FRONTEND_ORIGIN || "http://localhost:5173")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      // No Origin header (curl, server-to-server, same-origin) - allow.
+      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      callback(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 app.get("/api/health", (req, res) => res.json({ status: "ok" }));

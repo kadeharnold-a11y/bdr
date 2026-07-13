@@ -5,6 +5,7 @@ import { newId } from "../utils/ids.js";
 import { isValidGhanaMobile, isValidGhanaCardNumber, isValidPin, isValidEmail } from "../utils/validation.js";
 import { startOtpSession, verifyOtp, getSession, updateSessionProfile, deleteSession } from "../utils/otp.js";
 import { issueCitizenTokens, verifyRefreshToken } from "../utils/tokens.js";
+import { otpSendLimiter, otpVerifyLimiter, loginLimiter } from "../middleware/rateLimit.js";
 
 const router = Router();
 const devExposeOtp = () => process.env.DEV_EXPOSE_OTP === "true";
@@ -16,7 +17,7 @@ function withDevOtp(payload, code) {
 // --- Registration (PRD 4.1) ---------------------------------------------
 
 // Step 1: phone (+ optional email), start OTP.
-router.post("/register/send-otp", (req, res) => {
+router.post("/register/send-otp", otpSendLimiter, (req, res) => {
   const { phone, email } = req.body || {};
   if (!isValidGhanaMobile(phone)) {
     return res.status(400).json({ error: { code: "INVALID_PHONE", message: "Enter a valid 9-digit Ghana mobile number" } });
@@ -35,7 +36,7 @@ router.post("/register/send-otp", (req, res) => {
 });
 
 // Step 2: verify OTP.
-router.post("/register/verify-otp", (req, res) => {
+router.post("/register/verify-otp", otpVerifyLimiter, (req, res) => {
   const { registrationToken, otp } = req.body || {};
   const result = verifyOtp(registrationToken, otp);
   if (!result.ok) {
@@ -121,7 +122,7 @@ router.post("/register/pin", async (req, res) => {
 
 // --- Login (PRD 4.2: phone + PIN, then OTP) -----------------------------
 
-router.post("/login/send-otp", (req, res) => {
+router.post("/login/send-otp", loginLimiter, (req, res) => {
   const { phone, pin } = req.body || {};
   if (!isValidGhanaMobile(phone) || !isValidPin(pin)) {
     return res.status(400).json({ error: { code: "INVALID_CREDENTIALS", message: "Enter your phone number and 6-digit PIN" } });
@@ -141,7 +142,7 @@ router.post("/login/send-otp", (req, res) => {
   });
 });
 
-router.post("/login/verify-otp", (req, res) => {
+router.post("/login/verify-otp", otpVerifyLimiter, (req, res) => {
   const { loginToken, otp } = req.body || {};
   const result = verifyOtp(loginToken, otp);
   if (!result.ok) {

@@ -152,10 +152,82 @@ async function verifyOtp() {
   try {
     // TODO: wire to Laravel API — POST /api/auth/register/verify-otp
     await new Promise((r) => setTimeout(r, 800))
-    // Next: profile setup + PIN creation (PRD 4.1 steps 5-7).
-    router.push({ name: 'login' })
+    clearInterval(resendTimer)
+    step.value = 'profile'
   } finally {
     verifying.value = false
+  }
+}
+
+// --- Profile setup step (PRD 4.1 step 5) ---
+const profile = reactive({
+  fullName: '',
+  ghanaCard: '',
+})
+const profileErrors = reactive({
+  fullName: '',
+  ghanaCard: '',
+})
+const savingProfile = ref(false)
+
+// Auto-format Ghana Card as GHA-XXXXXXXXX-X while typing.
+function formatGhanaCard(event) {
+  const digits = event.target.value.toUpperCase().replace(/[^0-9]/g, '').slice(0, 10)
+  let out = 'GHA-'
+  if (digits.length) out += digits.slice(0, 9)
+  if (digits.length > 9) out += '-' + digits.slice(9, 10)
+  profile.ghanaCard = digits ? out : ''
+}
+
+function validateProfile() {
+  profileErrors.fullName = ''
+  profileErrors.ghanaCard = ''
+  if (profile.fullName.trim().length < 2) {
+    profileErrors.fullName = 'Enter your full name as shown on your Ghana Card.'
+  }
+  if (!/^GHA-\d{9}-\d$/.test(profile.ghanaCard)) {
+    profileErrors.ghanaCard = 'Enter a valid Ghana Card number (GHA-XXXXXXXXX-X).'
+  }
+  return !profileErrors.fullName && !profileErrors.ghanaCard
+}
+
+async function submitProfile() {
+  if (!validateProfile()) return
+  savingProfile.value = true
+  try {
+    // TODO: wire to Laravel API — POST /api/auth/register/profile
+    // (validates Ghana Card against NIA; DOB + gender are extracted server-side)
+    await new Promise((r) => setTimeout(r, 800))
+    step.value = 'pin'
+  } finally {
+    savingProfile.value = false
+  }
+}
+
+// --- PIN creation step (PRD 4.1 step 6) ---
+const pin = ref('')
+const confirmPin = ref('')
+const pinError = ref('')
+const creatingPin = ref(false)
+
+async function submitPin() {
+  pinError.value = ''
+  if (pin.value.length !== 6) {
+    pinError.value = 'Choose a 6-digit PIN.'
+    return
+  }
+  if (confirmPin.value !== pin.value) {
+    pinError.value = 'The two PINs do not match.'
+    return
+  }
+  creatingPin.value = true
+  try {
+    // TODO: wire to Laravel API — POST /api/auth/register/pin (hashed server-side)
+    await new Promise((r) => setTimeout(r, 800))
+    // Account created (PRD 4.1 step 7). Dashboard is not built yet — go to login.
+    router.push({ name: 'login' })
+  } finally {
+    creatingPin.value = false
   }
 }
 
@@ -259,6 +331,70 @@ onBeforeUnmount(() => clearInterval(resendTimer))
               <span v-else>Resend code</span>
             </button>
           </p>
+        </template>
+
+        <!-- Step 3: profile setup -->
+        <template v-else-if="step === 'profile'">
+          <h2 class="form-title">Complete your profile</h2>
+          <p class="form-help">
+            Enter your details exactly as they appear on your Ghana Card. Your date of birth and gender are read
+            from the card automatically.
+          </p>
+
+          <form @submit.prevent="submitProfile" novalidate>
+            <label class="field-label" for="fullName">Full Name</label>
+            <input
+              id="fullName"
+              v-model="profile.fullName"
+              type="text"
+              class="text-input"
+              :class="{ 'has-error': profileErrors.fullName }"
+              placeholder="e.g. Ama Serwaa Mensah"
+            />
+            <p class="field-error" v-if="profileErrors.fullName">{{ profileErrors.fullName }}</p>
+
+            <label class="field-label" for="ghanaCard">Ghana Card Number</label>
+            <input
+              id="ghanaCard"
+              :value="profile.ghanaCard"
+              type="text"
+              class="text-input"
+              :class="{ 'has-error': profileErrors.ghanaCard }"
+              placeholder="GHA-XXXXXXXXX-X"
+              @input="formatGhanaCard"
+            />
+            <p class="field-hint" v-if="!profileErrors.ghanaCard">
+              Validated against the NIA database.
+            </p>
+            <p class="field-error" v-else>{{ profileErrors.ghanaCard }}</p>
+
+            <button type="submit" class="btn-primary" :disabled="savingProfile">
+              <span v-if="!savingProfile">Continue</span>
+              <span v-else>Saving…</span>
+            </button>
+          </form>
+        </template>
+
+        <!-- Step 4: PIN creation -->
+        <template v-else-if="step === 'pin'">
+          <h2 class="form-title">Create your PIN</h2>
+          <p class="form-help">
+            Choose a 6-digit PIN to secure your account. You'll use it to sign in.
+          </p>
+
+          <form @submit.prevent="submitPin" novalidate>
+            <label class="field-label">New PIN</label>
+            <OtpInput v-model="pin" mask :has-error="!!pinError" />
+
+            <label class="field-label">Confirm PIN</label>
+            <OtpInput v-model="confirmPin" mask :has-error="!!pinError" @complete="submitPin" />
+            <p class="field-error" v-if="pinError">{{ pinError }}</p>
+
+            <button type="submit" class="btn-primary" :disabled="creatingPin">
+              <span v-if="!creatingPin">Create account</span>
+              <span v-else>Creating…</span>
+            </button>
+          </form>
         </template>
       </div>
     </div>

@@ -5,6 +5,7 @@ const props = defineProps({
   modelValue: { type: String, default: '' },
   length: { type: Number, default: 6 },
   hasError: { type: Boolean, default: false },
+  mask: { type: Boolean, default: false }, // hide digits (for PIN entry)
 })
 
 const emit = defineEmits(['update:modelValue', 'complete'])
@@ -39,8 +40,19 @@ function onInput(index, event) {
 }
 
 function onKeydown(index, event) {
-  if (event.key === 'Backspace' && !event.target.value && index > 0) {
-    focusInput(index - 1)
+  if (event.key === 'Backspace') {
+    // Manage backspace explicitly so state stays authoritative even when the
+    // native delete doesn't emit an input event (controlled value binding).
+    event.preventDefault()
+    const digits = digitsFrom(props.modelValue)
+    if (digits[index]) {
+      digits[index] = ''
+      emitValue(digits)
+    } else if (index > 0) {
+      digits[index - 1] = ''
+      emitValue(digits)
+      focusInput(index - 1)
+    }
   } else if (event.key === 'ArrowLeft' && index > 0) {
     focusInput(index - 1)
   } else if (event.key === 'ArrowRight' && index < props.length - 1) {
@@ -86,11 +98,11 @@ defineExpose({ focus: () => focusInput(0) })
       :ref="(el) => (inputs[i] = el)"
       :value="box"
       class="otp-box"
-      type="text"
+      :type="mask ? 'password' : 'text'"
       inputmode="numeric"
-      autocomplete="one-time-code"
+      :autocomplete="mask ? 'off' : 'one-time-code'"
       maxlength="1"
-      aria-label="Verification code digit"
+      :aria-label="mask ? 'PIN digit' : 'Verification code digit'"
       @input="onInput(i, $event)"
       @keydown="onKeydown(i, $event)"
       @paste="onPaste"

@@ -190,11 +190,26 @@ test("applications: document upload then submit succeeds", async () => {
       body: form,
     });
     assert.equal(res.status, 201);
+    const uploaded = await res.json();
+    if (fieldName === "hospitalBirthNotification") state.documentId = uploaded.id;
   }
 
   const submitted = await post(`/applications/${state.applicationId}/submit`, {}, state.accessToken);
   assert.equal(submitted.status, 200);
   assert.equal(submitted.body.status, "PAYMENT_PENDING");
+});
+
+test("applications: citizen can download their own document, not someone else's", async () => {
+  const ownDoc = await fetch(`${baseUrl}/applications/${state.applicationId}/documents/${state.documentId}`, {
+    headers: { Authorization: `Bearer ${state.accessToken}` },
+  });
+  assert.equal(ownDoc.status, 200);
+  assert.equal(await ownDoc.text(), "test file bytes");
+
+  const wrongApp = await fetch(`${baseUrl}/applications/does-not-exist/documents/${state.documentId}`, {
+    headers: { Authorization: `Bearer ${state.accessToken}` },
+  });
+  assert.equal(wrongApp.status, 404);
 });
 
 test("payments: mock-confirm generates a tracking ID matching the PRD format", async () => {
@@ -231,6 +246,12 @@ test("staff: login and process the application through to completion", async () 
   const complete = await post(`/staff/applications/${state.applicationId}/complete`, {}, staffToken);
   assert.equal(complete.status, 200);
   assert.equal(complete.body.status, "COMPLETED");
+
+  const doc = await fetch(`${baseUrl}/staff/applications/${state.applicationId}/documents/${state.documentId}`, {
+    headers: { Authorization: `Bearer ${staffToken}` },
+  });
+  assert.equal(doc.status, 200);
+  assert.equal(await doc.text(), "test file bytes");
 });
 
 test("staff: non-admin cannot read admin config", async () => {

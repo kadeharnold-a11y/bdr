@@ -139,6 +139,16 @@ router.post("/:id/documents", loadOwnApplication, upload.single("file"), (req, r
   res.status(201).json({ id, fieldName, originalName: req.file.originalname, sizeBytes: req.file.size });
 });
 
+// Citizen re-downloading their own uploaded document (e.g. to confirm what
+// was sent after a corrections request). Scoped through the owning
+// application, not a bare document ID lookup, so a citizen can't probe
+// other people's document IDs.
+router.get("/:id/documents/:documentId", loadOwnApplication, (req, res) => {
+  const document = db.prepare(`SELECT * FROM documents WHERE id = ? AND application_id = ?`).get(req.params.documentId, req.application.id);
+  if (!document) return res.status(404).json({ error: { code: "NOT_FOUND", message: "Document not found" } });
+  res.download(document.stored_path, document.original_name);
+});
+
 // PRD 6.2 steps 7-9: review + declaration + move to payment. Tracking ID
 // isn't assigned yet - that happens on payment success (PRD 7.2 step 6).
 router.post("/:id/submit", loadOwnApplication, (req, res) => {

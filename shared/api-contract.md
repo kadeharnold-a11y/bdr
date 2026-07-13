@@ -53,6 +53,7 @@ All authenticated citizen endpoints take `Authorization: Bearer <accessToken>`.
 - `PATCH /applications/:id` `{ formData?, tier? }` → merges into the draft's form data (used for both autosave and "Save and Continue Later"); also how a citizen edits after a `CORRECTIONS_REQUIRED` response
 - `DELETE /applications/:id` → discard a draft
 - `POST /applications/:id/documents` (multipart: `fieldName`, `file`, max 5MB) → attach a document
+- `GET /applications/:id/documents/:documentId` → download a previously uploaded document (own application only)
 - `POST /applications/:id/submit` → validates required fields/documents, moves `DRAFT` → `PAYMENT_PENDING`
 - `POST /applications/:id/resubmit` → moves `CORRECTIONS_REQUIRED` → `UNDER_REVIEW` after the citizen has edited
 
@@ -105,6 +106,7 @@ Delivery` - collapsed here; see "Known gaps".)
 - `POST /staff/login` `{ staffId, password }` → `{ staffId, role, fullName, accessToken, expiresIn }` (no 2FA yet - see gaps)
 - `GET /staff/queue?tier=&mine=true` → applications in `SUBMITTED`/`UNDER_REVIEW`/`CORRECTIONS_REQUIRED`/`AWAITING_APPROVAL`, each with `slaPercentRemaining`
 - `GET /staff/applications/:id` → full detail incl. citizen info and documents
+- `GET /staff/applications/:id/documents/:documentId` → download a document (any staff role, for the application workspace's document viewer, PRD 11.2)
 - `POST /staff/applications/:id/claim` → `SUBMITTED` → `UNDER_REVIEW`, assigns to caller
 - `POST /staff/applications/:id/request-corrections` `{ fields, notes }` → → `CORRECTIONS_REQUIRED`
 - `POST /staff/applications/:id/approve` → → `APPROVED`

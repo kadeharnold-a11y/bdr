@@ -119,6 +119,14 @@ router.get("/applications/:id", (req, res) => {
   });
 });
 
+// PRD 11.2: application workspace's document viewer needs the actual file,
+// not just the metadata already returned by GET /applications/:id.
+router.get("/applications/:id/documents/:documentId", (req, res) => {
+  const document = db.prepare(`SELECT * FROM documents WHERE id = ? AND application_id = ?`).get(req.params.documentId, req.params.id);
+  if (!document) return res.status(404).json({ error: { code: "NOT_FOUND", message: "Document not found" } });
+  res.download(document.stored_path, document.original_name);
+});
+
 // Officer picks up an unassigned application (PRD 11.1: "My Queue" vs "All Queue").
 router.post("/applications/:id/claim", (req, res) => {
   const application = db.prepare(`SELECT * FROM applications WHERE id = ?`).get(req.params.id);

@@ -2,20 +2,31 @@
 
 namespace App\Support;
 
+use App\Mail\OtpMail;
 use App\Models\AuthSession;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
 class Otp
 {
     public const TTL_SECONDS = 600; // PRD 4.1: OTP valid for 10 minutes.
 
-    // Creates an auth_sessions row and "sends" the OTP. There's no SMS
-    // gateway wired up yet (PRD 13 names Hubtel "or equivalent" but no creds
-    // exist - PRD 15.2 assumptions), so in dev we log it and optionally echo
-    // it back in the API response via DEV_EXPOSE_OTP.
-    public static function start(string $purpose, string $phone, ?string $citizenId = null, ?array $profile = null): AuthSession
-    {
+    // Creates an auth_sessions row and dispatches the OTP over the chosen
+    // channel. Phone has no SMS gateway wired up yet (PRD 13 names Hubtel
+    // "or equivalent" but no creds exist - PRD 15.2 assumptions), so phone
+    // codes are only ever logged. Email actually sends via Laravel Mail -
+    // if MAIL_MAILER isn't configured with real credentials it falls back to
+    // Laravel's "log" driver, which just writes it to the log instead of
+    // erroring, same as the phone path.
+    public static function start(
+        string $purpose,
+        string $phone,
+        ?string $citizenId = null,
+        ?array $profile = null,
+        string $channel = 'phone',
+        ?string $email = null,
+    ): AuthSession {
         $session = AuthSession::create([
             'token' => ($purpose === 'register' ? 'reg_' : 'log_').Str::uuid(),
             'purpose' => $purpose,
@@ -27,7 +38,12 @@ class Otp
             'profile' => $profile,
         ]);
 
-        Log::info("[OTP][{$purpose}] phone={$phone} code={$session->otp_code} (expires in ".self::TTL_SECONDS.'s)');
+        if ($channel === 'email' && $email) {
+            Mail::to($email)->send(new OtpMail($session->otp_code, $purpose));
+            Log::info("[OTP][{$purpose}][email] to={$email} code={$session->otp_code} (expires in ".self::TTL_SECONDS.'s)');
+        } else {
+            Log::info("[OTP][{$purpose}][phone] phone={$phone} code={$session->otp_code} (expires in ".self::TTL_SECONDS.'s)');
+        }
 
         return $session;
     }

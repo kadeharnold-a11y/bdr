@@ -33,9 +33,16 @@ class AuthController extends Controller
     {
         $phone = $request->input('phone');
         $email = $request->input('email');
+        $channel = $request->input('channel', 'phone'); // 'phone' | 'email'
 
         if (! is_string($phone) || ! preg_match(self::PHONE_REGEX, $phone)) {
             return $this->error('INVALID_PHONE', 'Enter a valid 9-digit Ghana mobile number', 400);
+        }
+        if (! in_array($channel, ['phone', 'email'], true)) {
+            return $this->error('INVALID_CHANNEL', "channel must be 'phone' or 'email'", 400);
+        }
+        if ($channel === 'email' && (! is_string($email) || ! filter_var($email, FILTER_VALIDATE_EMAIL))) {
+            return $this->error('INVALID_EMAIL', 'Enter a valid email address to receive the code by email', 400);
         }
         if ($email !== null && ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
             return $this->error('INVALID_EMAIL', 'Enter a valid email address', 400);
@@ -44,11 +51,12 @@ class AuthController extends Controller
             return $this->error('PHONE_ALREADY_REGISTERED', 'This phone number already has an account. Please log in instead.', 409);
         }
 
-        $session = Otp::start('register', $phone, profile: ['email' => $email]);
+        $session = Otp::start('register', $phone, profile: ['email' => $email], channel: $channel, email: $email);
 
         return response()->json($this->withDevOtp([
             'registrationToken' => $session->token,
-            'otpSentTo' => $phone,
+            'otpChannel' => $channel,
+            'otpSentTo' => $channel === 'email' ? $email : $phone,
             'otpExpiresInSeconds' => Otp::TTL_SECONDS,
         ], $session));
     }
@@ -137,22 +145,30 @@ class AuthController extends Controller
     {
         $phone = $request->input('phone');
         $pin = $request->input('pin');
+        $channel = $request->input('channel', 'phone'); // 'phone' | 'email'
 
         if (! is_string($phone) || ! preg_match(self::PHONE_REGEX, $phone)
             || ! is_string($pin) || ! preg_match(self::PIN_REGEX, $pin)) {
             return $this->error('INVALID_CREDENTIALS', 'Enter your phone number and 6-digit PIN', 400);
+        }
+        if (! in_array($channel, ['phone', 'email'], true)) {
+            return $this->error('INVALID_CHANNEL', "channel must be 'phone' or 'email'", 400);
         }
 
         $citizen = Citizen::where('phone', $phone)->first();
         if (! $citizen || ! Hash::check($pin, $citizen->pin_hash)) {
             return $this->error('INVALID_CREDENTIALS', 'Phone number or PIN is incorrect', 401);
         }
+        if ($channel === 'email' && ! $citizen->email) {
+            return $this->error('NO_EMAIL_ON_FILE', 'No email address is on file for this account', 400);
+        }
 
-        $session = Otp::start('login', $phone, citizenId: $citizen->id);
+        $session = Otp::start('login', $phone, citizenId: $citizen->id, channel: $channel, email: $citizen->email);
 
         return response()->json($this->withDevOtp([
             'loginToken' => $session->token,
-            'otpSentTo' => $phone,
+            'otpChannel' => $channel,
+            'otpSentTo' => $channel === 'email' ? $citizen->email : $phone,
             'otpExpiresInSeconds' => Otp::TTL_SECONDS,
         ], $session));
     }

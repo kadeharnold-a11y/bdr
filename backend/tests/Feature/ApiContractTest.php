@@ -2,9 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Mail\OtpMail;
 use App\Models\AuthSession;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -17,9 +19,9 @@ class ApiContractTest extends TestCase
 
     protected bool $seed = true;
 
-    private function registerCitizen(string $phone = '244111222', string $pin = '135790'): array
+    private function registerCitizen(string $phone = '244111222', string $pin = '135790', ?string $email = 'test@example.com'): array
     {
-        $send = $this->postJson('/api/auth/register/send-otp', ['phone' => $phone, 'email' => 'test@example.com']);
+        $send = $this->postJson('/api/auth/register/send-otp', ['phone' => $phone, 'email' => $email]);
         $send->assertOk();
         $token = $send->json('registrationToken');
 
@@ -111,6 +113,35 @@ class ApiContractTest extends TestCase
             ->assertJsonPath('error.code', 'INVALID_PHONE');
     }
 
+    public function test_registration_email_channel_requires_valid_email_and_actually_sends(): void
+    {
+        Mail::fake();
+
+        $this->postJson('/api/auth/register/send-otp', ['phone' => '244111222', 'channel' => 'email'])
+            ->assertStatus(400)
+            ->assertJsonPath('error.code', 'INVALID_EMAIL');
+
+        $send = $this->postJson('/api/auth/register/send-otp', [
+            'phone' => '244111222',
+            'email' => 'kwame@example.com',
+            'channel' => 'email',
+        ]);
+        $send->assertOk()
+            ->assertJsonPath('otpChannel', 'email')
+            ->assertJsonPath('otpSentTo', 'kwame@example.com');
+
+        Mail::assertSent(OtpMail::class, function (OtpMail $mail) use ($send) {
+            return $mail->code === $send->json('devOtp') && $mail->hasTo('kwame@example.com');
+        });
+    }
+
+    public function test_registration_rejects_invalid_channel(): void
+    {
+        $this->postJson('/api/auth/register/send-otp', ['phone' => '244111222', 'channel' => 'carrier-pigeon'])
+            ->assertStatus(400)
+            ->assertJsonPath('error.code', 'INVALID_CHANNEL');
+    }
+
     public function test_registration_rejects_wrong_otp(): void
     {
         $send = $this->postJson('/api/auth/register/send-otp', ['phone' => '244111222']);
@@ -158,6 +189,22 @@ class ApiContractTest extends TestCase
             'loginToken' => $send->json('loginToken'),
             'otp' => $send->json('devOtp'),
         ])->assertOk()->assertJsonStructure(['citizenId', 'accessToken', 'refreshToken', 'expiresIn']);
+    }
+
+    public function test_login_email_channel_sends_to_email_on_file_or_rejects_when_missing(): void
+    {
+        Mail::fake();
+        $this->registerCitizen(); // registerCitizen() sets email to test@example.com
+
+        $send = $this->postJson('/api/auth/login/send-otp', ['phone' => '244111222', 'pin' => '135790', 'channel' => 'email']);
+        $send->assertOk()->assertJsonPath('otpSentTo', 'test@example.com');
+        Mail::assertSent(OtpMail::class);
+
+        $this->registerCitizen(phone: '244222333', email: null); // no email set this time
+
+        $this->postJson('/api/auth/login/send-otp', ['phone' => '244222333', 'pin' => '135790', 'channel' => 'email'])
+            ->assertStatus(400)
+            ->assertJsonPath('error.code', 'NO_EMAIL_ON_FILE');
     }
 
     public function test_refresh_issues_new_tokens(): void

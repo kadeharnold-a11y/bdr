@@ -10,8 +10,8 @@
     },
     {
       "name": "backend",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "php",
+      "runtimeArgs": ["artisan", "serve", "--port", "4000"],
       "port": 4000,
       "cwd": "backend"
     }

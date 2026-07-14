@@ -21,7 +21,7 @@ Citizen auth is **phone + 6-digit PIN**, confirmed against the real live
 site's behavior (not phone + password, which an earlier draft assumed).
 
 ### Register
-1. `POST /auth/register/send-otp` `{ phone, email? }` → `{ registrationToken, otpSentTo, otpExpiresInSeconds }`
+1. `POST /auth/register/send-otp` `{ phone, email?, channel? }` → `{ registrationToken, otpChannel, otpSentTo, otpExpiresInSeconds }`
 2. `POST /auth/register/verify-otp` `{ registrationToken, otp }` → `{ profileToken }`
 3. `POST /auth/register/profile` `{ profileToken, fullName, ghanaCardNumber?, email? }` → `{ profileToken, nia: { status, dateOfBirth, gender } }`
 4. `POST /auth/register/pin` `{ profileToken, pin }` → `{ citizenId, accessToken, refreshToken, expiresIn }`
@@ -29,13 +29,25 @@ site's behavior (not phone + password, which an earlier draft assumed).
 `phone` is a **9-digit local number**, no `+233` or leading `0` (matches the
 validation already in `SignUp.vue`). `ghanaCardNumber` format: `GHA-XXXXXXXXX-X`.
 
+`channel` is `'phone'` (default) or `'email'` — picks where the OTP is
+delivered. `channel: 'email'` requires a valid `email`. **Email delivery is
+real** (Laravel Mail) once SMTP credentials are configured in `.env`
+(`MAIL_MAILER=smtp` + host/username/password); until then it falls back to
+Laravel's `log` driver, which writes the full email to
+`storage/logs/laravel.log` instead of sending it. **Phone delivery is
+always log-only** — no SMS gateway account exists (PRD 13/15.2).
+
 While `DEV_EXPOSE_OTP=true` (dev default), every OTP response also includes
-`devOtp` so you can test without a real SMS gateway. Never enable that flag
-outside local dev.
+`devOtp` so you can test without configuring real delivery. Never enable
+that flag outside local dev.
 
 ### Login
-1. `POST /auth/login/send-otp` `{ phone, pin }` → `{ loginToken, otpSentTo, otpExpiresInSeconds }`
+1. `POST /auth/login/send-otp` `{ phone, pin, channel? }` → `{ loginToken, otpChannel, otpSentTo, otpExpiresInSeconds }`
 2. `POST /auth/login/verify-otp` `{ loginToken, otp }` → `{ citizenId, accessToken, refreshToken, expiresIn }`
+
+`channel: 'email'` on login sends to whatever email is already on the
+citizen's account (not user-supplied) — returns `NO_EMAIL_ON_FILE` (400) if
+they registered without one.
 
 ### Refresh
 `POST /auth/refresh` `{ refreshToken }` → `{ accessToken, refreshToken, expiresIn }`
@@ -146,8 +158,10 @@ this exists:
   hand in the DB.
 - No **NIA API integration** - always returns `UNAVAILABLE` (correctly,
   per the PRD's own design note, this doesn't block registration).
-- No **real SMS gateway** - OTPs are logged server-side and optionally
-  echoed in dev responses.
+- No **real SMS gateway** - `channel: 'phone'` OTPs are always logged
+  server-side and optionally echoed in dev responses, never actually
+  texted. `channel: 'email'` OTPs *do* really send via Laravel Mail once
+  SMTP credentials are configured (see Auth section above).
 - No **real Npontu Pay integration** - mock mode only, no sandbox creds.
 - No **2FA** for back-office users.
 - No **certificate PDF generation**, QR codes, or digital signing.

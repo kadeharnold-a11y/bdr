@@ -1,21 +1,34 @@
 <script setup>
-import { ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import CitizenLayout from '../layouts/CitizenLayout.vue'
+import { api } from '../lib/api'
+import { getSession } from '../lib/auth'
 
 const router = useRouter()
 
-// TODO: replace with the authenticated citizen + real figures from the API.
-const user = { name: 'Enam Kadeh' }
+const user = { name: getSession()?.fullName || 'Citizen' }
 
 const trackingId = ref('')
 
-const stats = [
+const stats = reactive([
   { key: 'active', value: 0, label: 'Active applications in progress', icon: 'doc', tone: 'green' },
   { key: 'drafts', value: 0, label: 'Saved drafts to finish later', icon: 'edit', tone: 'gold' },
   { key: 'completed', value: 0, label: 'Completed applications & certificates', icon: 'check', tone: 'mint' },
   { key: 'alerts', value: 0, label: 'Unread alerts & messages', icon: 'bell', tone: 'pink' },
-]
+])
+
+onMounted(async () => {
+  try {
+    const { data } = await api.get('/citizens/me/dashboard')
+    stats[0].value = data.activeApplications.length
+    stats[1].value = data.drafts.length
+    stats[2].value = data.completedApplications.length
+    stats[3].value = data.notifications.length
+  } catch {
+    // Not logged in or backend unreachable - dashboard just shows zeros.
+  }
+})
 
 const statIcons = {
   doc: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M6 2h9l5 5v15H6zm8 1v4h4M8 12h8v2H8zm0 4h8v2H8z"/></svg>',

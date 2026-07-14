@@ -2,6 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import OtpInput from '../components/OtpInput.vue'
+import { api } from '../lib/api'
+import { saveSession } from '../lib/auth'
 
 const router = useRouter()
 
@@ -74,21 +76,35 @@ const form = reactive({
   email: '',
 })
 
+// Where the verification code gets delivered - independent of the account's
+// phone number, which is always required as the login identifier.
+const channel = ref('phone') // 'phone' | 'email'
+
 const errors = reactive({
   phone: '',
   email: '',
+  form: '',
 })
 
 const submitting = ref(false)
+const registrationToken = ref('')
+const profileToken = ref('')
+
+function extractApiError(err) {
+  return err?.response?.data?.error?.message || 'Something went wrong. Please try again.'
+}
 
 function validate() {
   errors.phone = ''
   errors.email = ''
+  errors.form = ''
 
   if (!/^\d{9,10}$/.test(form.phone)) {
     errors.phone = 'Enter a valid Ghana mobile number (digits only, no +233 or 0 prefix).'
   }
-  if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+  if (channel.value === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+    errors.email = 'Enter a valid email address to receive your code.'
+  } else if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
     errors.email = 'Enter a valid email address.'
   }
   return !errors.phone && !errors.email
@@ -98,9 +114,24 @@ async function onSubmit() {
   if (!validate()) return
   submitting.value = true
   try {
-    // TODO: wire to Laravel API — POST /api/auth/register/send-otp
-    await new Promise((r) => setTimeout(r, 800))
+    const { data } = await api.post('/auth/register/send-otp', {
+      phone: form.phone,
+      email: form.email || undefined,
+      channel: channel.value,
+    })
+    registrationToken.value = data.registrationToken
     goToOtp()
+  } catch (err) {
+    const code = err.response?.data?.error?.code
+    if (code === 'PHONE_ALREADY_REGISTERED') {
+      router.push({ name: 'login' })
+    } else if (code === 'INVALID_PHONE') {
+      errors.phone = extractApiError(err)
+    } else if (code === 'INVALID_EMAIL') {
+      errors.email = extractApiError(err)
+    } else {
+      errors.form = extractApiError(err)
+    }
   } finally {
     submitting.value = false
   }
@@ -136,10 +167,19 @@ function backToContact() {
 
 async function resendCode() {
   if (resendSeconds.value > 0) return
-  // TODO: wire to Laravel API — POST /api/auth/register/send-otp (resend)
-  otp.value = ''
   otpError.value = ''
-  startResendCountdown()
+  try {
+    const { data } = await api.post('/auth/register/send-otp', {
+      phone: form.phone,
+      email: form.email || undefined,
+      channel: channel.value,
+    })
+    registrationToken.value = data.registrationToken
+    otp.value = ''
+    startResendCountdown()
+  } catch (err) {
+    otpError.value = extractApiError(err)
+  }
 }
 
 async function verifyOtp() {
@@ -150,10 +190,20 @@ async function verifyOtp() {
   verifying.value = true
   otpError.value = ''
   try {
-    // TODO: wire to Laravel API — POST /api/auth/register/verify-otp
-    await new Promise((r) => setTimeout(r, 800))
+    const { data } = await api.post('/auth/register/verify-otp', {
+      registrationToken: registrationToken.value,
+      otp: otp.value,
+    })
+    profileToken.value = data.profileToken
     clearInterval(resendTimer)
     step.value = 'profile'
+  } catch (err) {
+    const code = err.response?.data?.error?.code
+    otpError.value = code === 'OTP_EXPIRED'
+      ? 'That code has expired. Request a new one.'
+      : code === 'OTP_INCORRECT'
+        ? 'Incorrect code. Please try again.'
+        : extractApiError(err)
   } finally {
     verifying.value = false
   }
@@ -191,14 +241,27 @@ function validateProfile() {
   return !profileErrors.fullName && !profileErrors.ghanaCard
 }
 
+const profileFormError = ref('')
+
 async function submitProfile() {
   if (!validateProfile()) return
   savingProfile.value = true
+  profileFormError.value = ''
   try {
-    // TODO: wire to Laravel API — POST /api/auth/register/profile
-    // (validates Ghana Card against NIA; DOB + gender are extracted server-side)
-    await new Promise((r) => setTimeout(r, 800))
+    // NIA verification result isn't shown here - per the PRD design note,
+    // an UNAVAILABLE/unverified card never blocks registration, so there's
+    // nothing actionable to surface to the citizen at this step.
+    await api.post('/auth/register/profile', {
+      profileToken: profileToken.value,
+      fullName: profile.fullName,
+      ghanaCardNumber: profile.ghanaCard,
+    })
     step.value = 'pin'
+  } catch (err) {
+    const code = err.response?.data?.error?.code
+    if (code === 'INVALID_NAME') profileErrors.fullName = extractApiError(err)
+    else if (code === 'INVALID_GHANA_CARD') profileErrors.ghanaCard = extractApiError(err)
+    else profileFormError.value = extractApiError(err)
   } finally {
     savingProfile.value = false
   }
@@ -222,10 +285,20 @@ async function submitPin() {
   }
   creatingPin.value = true
   try {
-    // TODO: wire to Laravel API — POST /api/auth/register/pin (hashed server-side)
-    await new Promise((r) => setTimeout(r, 800))
+    const { data } = await api.post('/auth/register/pin', {
+      profileToken: profileToken.value,
+      pin: pin.value,
+    })
+    saveSession({
+      citizenId: data.citizenId,
+      accessToken: data.accessToken,
+      refreshToken: data.refreshToken,
+      fullName: profile.fullName,
+    })
     // Account created (PRD 4.1 step 7) — land on the citizen dashboard.
     router.push({ name: 'dashboard' })
+  } catch (err) {
+    pinError.value = extractApiError(err)
   } finally {
     creatingPin.value = false
   }
@@ -252,7 +325,8 @@ onBeforeUnmount(() => clearInterval(resendTimer))
         <template v-if="step === 'contact'">
           <h2 class="form-title">Create an Account</h2>
           <p class="form-help">
-            Enter your Ghana mobile number and email address. We will send a 6-digit verification code to your phone.
+            Enter your Ghana mobile number, then choose whether your 6-digit verification code goes to your phone
+            or your email.
           </p>
 
           <form @submit.prevent="onSubmit" novalidate>
@@ -285,8 +359,36 @@ onBeforeUnmount(() => clearInterval(resendTimer))
               :class="{ 'has-error': errors.email }"
               placeholder="Enter your email address"
             />
-            <p class="field-hint" v-if="!errors.email">Your verification code will be sent here.</p>
+            <p class="field-hint" v-if="!errors.email">
+              {{ channel === 'email' ? 'Your verification code will be sent here.' : 'Optional — used for receipts and account recovery.' }}
+            </p>
             <p class="field-error" v-else>{{ errors.email }}</p>
+
+            <label class="field-label">Send my code by</label>
+            <div class="channel-toggle" role="radiogroup" aria-label="Verification code delivery method">
+              <button
+                type="button"
+                class="channel-option"
+                :class="{ active: channel === 'phone' }"
+                role="radio"
+                :aria-checked="channel === 'phone'"
+                @click="channel = 'phone'"
+              >
+                📱 Text message
+              </button>
+              <button
+                type="button"
+                class="channel-option"
+                :class="{ active: channel === 'email' }"
+                role="radio"
+                :aria-checked="channel === 'email'"
+                @click="channel = 'email'"
+              >
+                ✉️ Email
+              </button>
+            </div>
+
+            <p class="field-error form-error" v-if="errors.form">{{ errors.form }}</p>
 
             <button type="submit" class="btn-primary" :disabled="submitting">
               <span v-if="!submitting">Send verification code</span>
@@ -303,9 +405,10 @@ onBeforeUnmount(() => clearInterval(resendTimer))
         <!-- Step 2: OTP verification -->
         <template v-else-if="step === 'otp'">
           <button type="button" class="back-link" @click="backToContact">← Change number</button>
-          <h2 class="form-title">Verify your number</h2>
+          <h2 class="form-title">Verify your {{ channel === 'email' ? 'email' : 'number' }}</h2>
           <p class="form-help">
-            Enter the 6-digit code we sent by SMS to <strong>{{ maskedPhone }}</strong>. The code is valid for 10 minutes.
+            Enter the 6-digit code we sent by {{ channel === 'email' ? 'email to' : 'SMS to' }}
+            <strong>{{ channel === 'email' ? form.email : maskedPhone }}</strong>. The code is valid for 10 minutes.
           </p>
 
           <form @submit.prevent="verifyOtp" novalidate>
@@ -367,6 +470,8 @@ onBeforeUnmount(() => clearInterval(resendTimer))
               Validated against the NIA database.
             </p>
             <p class="field-error" v-else>{{ profileErrors.ghanaCard }}</p>
+
+            <p class="field-error form-error" v-if="profileFormError">{{ profileFormError }}</p>
 
             <button type="submit" class="btn-primary" :disabled="savingProfile">
               <span v-if="!savingProfile">Continue</span>
@@ -626,6 +731,35 @@ onBeforeUnmount(() => clearInterval(resendTimer))
   margin: 6px 0 0;
   font-size: 12px;
   color: var(--danger);
+}
+
+.form-error {
+  margin-top: 20px;
+  text-align: center;
+}
+
+.channel-toggle {
+  display: flex;
+  gap: 8px;
+}
+
+.channel-option {
+  flex: 1;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
+}
+
+.channel-option.active {
+  border-color: var(--brand-green);
+  color: var(--brand-green);
+  background: rgba(0, 107, 63, 0.08);
 }
 
 .btn-primary {

@@ -1,9 +1,26 @@
 <script setup>
 import { ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
+import { clearSession, getSession } from '../lib/auth'
 
-// TODO: replace with the authenticated citizen from the auth store.
-const user = { name: 'Enam Kadeh', initials: 'EK' }
+const router = useRouter()
+
+const session = getSession()
+const fullName = session?.fullName || 'Citizen'
+const user = {
+  name: fullName,
+  initials: fullName
+    .split(' ')
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase(),
+}
+
+function signOut() {
+  clearSession()
+  router.push({ name: 'login' })
+}
 
 const sidebarOpen = ref(false)
 
@@ -88,7 +105,7 @@ const nav = [
             :to="item.to"
             class="nav-link"
             active-class="active"
-            @click="sidebarOpen = false"
+            @click="item.label === 'Sign Out' ? signOut() : (sidebarOpen = false)"
           >
             <span class="nav-icon" v-html="icons[item.icon]"></span>
             {{ item.label }}

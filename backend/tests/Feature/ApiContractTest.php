@@ -43,12 +43,37 @@ class ApiContractTest extends TestCase
         return $pinResponse->json();
     }
 
+    // Staff login is always two steps now (password, then TOTP) - this
+    // drives both legs so the rest of the suite can keep asking for "a
+    // staff token" without caring about the 2FA mechanics.
     private function staffToken(string $staffId = 'OFF-001'): string
     {
         $login = $this->postJson('/api/staff/login', ['staffId' => $staffId, 'password' => 'changeme123']);
         $login->assertOk();
 
-        return $login->json('accessToken');
+        $secret = $login->json('secret'); // only present on first-ever login (setup)
+        if ($secret) {
+            $code = (new \PragmaRX\Google2FA\Google2FA())->getCurrentOtp($secret);
+            $verify = $this->postJson('/api/staff/login/verify-2fa', [
+                'challengeToken' => $login->json('challengeToken'),
+                'code' => $code,
+            ]);
+            $verify->assertOk();
+
+            return $verify->json('accessToken');
+        }
+
+        // Already enrolled - fetch the secret directly (test-only shortcut;
+        // real clients never see it again after the first setup).
+        $staff = \App\Models\StaffUser::where('staff_id', $staffId)->first();
+        $code = (new \PragmaRX\Google2FA\Google2FA())->getCurrentOtp($staff->two_factor_secret);
+        $verify = $this->postJson('/api/staff/login/verify-2fa', [
+            'challengeToken' => $login->json('challengeToken'),
+            'code' => $code,
+        ]);
+        $verify->assertOk();
+
+        return $verify->json('accessToken');
     }
 
     private function submittedApplication(string $accessToken, string $eventType = 'early_birth', array $formData = [], array $documents = []): string
@@ -248,8 +273,7 @@ class ApiContractTest extends TestCase
 
     public function test_staff_logout_revokes_only_the_current_token(): void
     {
-        $login = $this->postJson('/api/staff/login', ['staffId' => 'OFF-001', 'password' => 'changeme123']);
-        $headers = ['Authorization' => "Bearer {$login->json('accessToken')}"];
+        $headers = ['Authorization' => 'Bearer '.$this->staffToken('OFF-001')];
 
         $this->getJson('/api/staff/queue', $headers)->assertOk();
         $this->postJson('/api/staff/logout', [], $headers)->assertOk();
@@ -483,6 +507,48 @@ class ApiContractTest extends TestCase
 
         $this->getJson('/api/citizens/me/dashboard', $staffHeaders)->assertStatus(401);
         $this->getJson('/api/staff/queue', $citizenHeaders)->assertStatus(401);
+    }
+
+    public function test_staff_first_login_requires_setting_up_2fa_and_enforces_it_after(): void
+    {
+        $login = $this->postJson('/api/staff/login', ['staffId' => 'OFF-001', 'password' => 'changeme123']);
+        $login->assertOk()->assertJsonPath('twoFactorSetupRequired', true)->assertJsonStructure(['challengeToken', 'secret', 'otpauthUrl']);
+
+        $wrongCode = $this->postJson('/api/staff/login/verify-2fa', [
+            'challengeToken' => $login->json('challengeToken'),
+            'code' => '000000',
+        ]);
+        $wrongCode->assertStatus(400)->assertJsonPath('error.code', 'INVALID_2FA_CODE');
+
+        $secret = $login->json('secret');
+        $code = (new \PragmaRX\Google2FA\Google2FA())->getCurrentOtp($secret);
+        $this->postJson('/api/staff/login/verify-2fa', [
+            'challengeToken' => $login->json('challengeToken'),
+            'code' => $code,
+        ])->assertOk()->assertJsonStructure(['accessToken']);
+
+        // Second login onward: password succeeds, but a code is still required
+        // (no more "secret" in the response - already enrolled).
+        $secondLogin = $this->postJson('/api/staff/login', ['staffId' => 'OFF-001', 'password' => 'changeme123']);
+        $secondLogin->assertOk()->assertJsonPath('twoFactorRequired', true)->assertJsonMissingPath('secret');
+
+        $secondCode = (new \PragmaRX\Google2FA\Google2FA())->getCurrentOtp($secret);
+        $this->postJson('/api/staff/login/verify-2fa', [
+            'challengeToken' => $secondLogin->json('challengeToken'),
+            'code' => $secondCode,
+        ])->assertOk()->assertJsonStructure(['accessToken']);
+    }
+
+    public function test_expired_2fa_challenge_is_rejected(): void
+    {
+        $login = $this->postJson('/api/staff/login', ['staffId' => 'OFF-001', 'password' => 'changeme123']);
+        \App\Models\StaffLoginChallenge::find($login->json('challengeToken'))->update(['expires_at' => now()->subMinute()]);
+
+        $code = (new \PragmaRX\Google2FA\Google2FA())->getCurrentOtp($login->json('secret'));
+        $this->postJson('/api/staff/login/verify-2fa', [
+            'challengeToken' => $login->json('challengeToken'),
+            'code' => $code,
+        ])->assertStatus(400)->assertJsonPath('error.code', 'INVALID_CHALLENGE');
     }
 
     public function test_admin_config_requires_admin_role_reason_and_valid_fees(): void

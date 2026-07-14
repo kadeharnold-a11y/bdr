@@ -20,7 +20,10 @@ php artisan serve --port 4000
 ```
 
 Server runs on `http://localhost:4000`. Dev-only staff accounts are seeded
-(`ADM-001`, `OFF-001`, `SUP-001`, `FIN-001`, password `changeme123`).
+(`ADM-001`, `OFF-001`, `SUP-001`, `FIN-001`, password `changeme123`). Staff
+login is always two steps (password, then a TOTP code) - the first login
+for any account returns a QR code to scan into an authenticator app; see
+`shared/api-contract.md`'s staff login section.
 
 ## Tests
 

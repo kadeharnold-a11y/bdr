@@ -4,13 +4,16 @@ namespace App\Http\Controllers;
 
 use App\Models\Application;
 use App\Models\AuditLog;
+use App\Models\StaffLoginChallenge;
 use App\Models\StaffUser;
 use App\Support\Notifier;
 use App\Support\Tokens;
+use App\Support\TwoFactor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class StaffController extends Controller
 {
@@ -51,14 +54,62 @@ class StaffController extends Controller
         return max(0, (int) round($remaining / $total * 100));
     }
 
-    // PRD 9.2 step 6: 2FA is mandatory for all back-office users. Not
-    // implemented in this v1 slice - password-only, dev-seeded accounts.
+    // PRD 9.2 step 6: 2FA is mandatory for all back-office users. Password is
+    // step 1; step 2 is always a TOTP code, generating+enrolling a secret on
+    // first-ever login rather than requiring a separate setup flow.
     public function login(Request $request): JsonResponse
     {
         $staff = StaffUser::where('staff_id', $request->input('staffId'))->where('active', true)->first();
         if (! $staff || ! Hash::check((string) $request->input('password'), $staff->password)) {
             return $this->error('INVALID_CREDENTIALS', 'Staff ID or password is incorrect', 401);
         }
+
+        $isNewSetup = ! $staff->hasTwoFactorEnabled();
+        if ($isNewSetup) {
+            // Secret is written now (not just held in-memory) so the pending
+            // setup survives across requests; it only "counts" as enabled
+            // once two_factor_confirmed_at is set in verifyTwoFactor().
+            $staff->update(['two_factor_secret' => TwoFactor::generateSecret()]);
+        }
+
+        $challenge = StaffLoginChallenge::create([
+            'token' => 'chl_'.Str::uuid(),
+            'staff_user_id' => $staff->id,
+            'is_new_setup' => $isNewSetup,
+            'expires_at' => now()->addMinutes(10),
+        ]);
+
+        if ($isNewSetup) {
+            return response()->json([
+                'twoFactorSetupRequired' => true,
+                'challengeToken' => $challenge->token,
+                'secret' => $staff->two_factor_secret,
+                'otpauthUrl' => TwoFactor::otpauthUrl($staff->staff_id, $staff->two_factor_secret),
+            ]);
+        }
+
+        return response()->json([
+            'twoFactorRequired' => true,
+            'challengeToken' => $challenge->token,
+        ]);
+    }
+
+    public function verifyTwoFactor(Request $request): JsonResponse
+    {
+        $challenge = StaffLoginChallenge::find($request->input('challengeToken'));
+        if (! $challenge || now()->greaterThan($challenge->expires_at)) {
+            return $this->error('INVALID_CHALLENGE', 'Log in again', 400);
+        }
+
+        $staff = $challenge->staff;
+        if (! TwoFactor::verify($staff->two_factor_secret, (string) $request->input('code'))) {
+            return $this->error('INVALID_2FA_CODE', 'Incorrect verification code', 400);
+        }
+
+        if ($challenge->is_new_setup) {
+            $staff->update(['two_factor_confirmed_at' => now()]);
+        }
+        $challenge->delete();
 
         return response()->json([
             'staffId' => $staff->staff_id,

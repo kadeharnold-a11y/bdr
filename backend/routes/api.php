@@ -59,6 +59,7 @@ Route::middleware(['auth:sanctum', 'citizen'])->group(function () {
 
 // --- Staff ----------------------------------------------------------------
 Route::post('/staff/login', [StaffController::class, 'login'])->middleware('throttle:staff-login');
+Route::post('/staff/login/verify-2fa', [StaffController::class, 'verifyTwoFactor'])->middleware('throttle:staff-login');
 
 Route::middleware(['auth:sanctum', 'staff'])->group(function () {
     Route::post('/staff/logout', [StaffController::class, 'logout']);

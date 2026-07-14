@@ -156,7 +156,14 @@ Delivery` - collapsed here; see "Known gaps".)
 
 ## Back-office (staff)
 
-- `POST /staff/login` `{ staffId, password }` → `{ staffId, role, fullName, accessToken, expiresIn }` (no 2FA yet - see gaps)
+### Staff login (PRD 9.2 step 6: 2FA is mandatory, always two steps)
+
+1. `POST /staff/login` `{ staffId, password }`:
+   - First-ever login for that account → `{ twoFactorSetupRequired: true, challengeToken, secret, otpauthUrl }`. `otpauthUrl` is an `otpauth://` URI - render it as a QR code for the user to scan into an authenticator app (Google Authenticator, Authy, etc). `secret` is only ever shown here; store the QR code, not the raw secret, in your UI.
+   - Already enrolled → `{ twoFactorRequired: true, challengeToken }`.
+2. `POST /staff/login/verify-2fa` `{ challengeToken, code }` → `{ staffId, role, fullName, accessToken, expiresIn }`. On first-ever login this also confirms/activates the 2FA secret generated in step 1. `challengeToken` expires after 10 minutes.
+
+`POST /staff/logout` revokes the current token (see Logout section above).
 - `GET /staff/queue?tier=&mine=true` → applications in `SUBMITTED`/`UNDER_REVIEW`/`CORRECTIONS_REQUIRED`/`AWAITING_APPROVAL`, each with `slaPercentRemaining`
 - `GET /staff/applications/:id` → full detail incl. citizen info and documents
 - `GET /staff/applications/:id/documents/:documentId` → download a document (any staff role, for the application workspace's document viewer, PRD 11.2)
@@ -210,7 +217,8 @@ this exists:
   texted. `channel: 'email'` OTPs *do* really send via Laravel Mail once
   SMTP credentials are configured (see Auth section above).
 - No **real Npontu Pay integration** - mock mode only, no sandbox creds.
-- No **2FA** for back-office users.
+- 2FA (TOTP) is now implemented and mandatory for staff, but there's no
+  recovery-code / backup-device flow if someone loses their authenticator.
 - No **certificate PDF generation**, QR codes, or digital signing.
 - Staff account provisioning now has a real API (see above), but district/
   office/queue/working-hours assignment (PRD 9.2 steps 3-5) still isn't

@@ -67,6 +67,13 @@ class StaffController extends Controller
         ]);
     }
 
+    public function logout(Request $request): JsonResponse
+    {
+        $request->user()->currentAccessToken()->delete();
+
+        return response()->json(['loggedOut' => true]);
+    }
+
     // PRD 11.1: dual-lane queue (Standard / Express), SLA-aware. The full
     // stage-by-stage workflow engine (PRD 10) isn't built - simplified
     // linear status model.

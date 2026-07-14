@@ -199,6 +199,16 @@ class AuthController extends Controller
         return response()->json(Tokens::forCitizen($citizen));
     }
 
+    // Revokes every Sanctum token (access + refresh) belonging to this
+    // citizen - there's no per-device session model, so "log out" means log
+    // out everywhere rather than just the token used to call this endpoint.
+    public function logout(Request $request): JsonResponse
+    {
+        $request->user()->tokens()->delete();
+
+        return response()->json(['loggedOut' => true]);
+    }
+
     private function verifiedRegisterSession(?string $token): ?AuthSession
     {
         $session = $token ? AuthSession::find($token) : null;

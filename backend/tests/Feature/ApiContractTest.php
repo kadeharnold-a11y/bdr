@@ -231,6 +231,30 @@ class ApiContractTest extends TestCase
             ->assertStatus(401);
     }
 
+    public function test_logout_revokes_both_access_and_refresh_tokens(): void
+    {
+        $result = $this->registerCitizen();
+        $headers = ['Authorization' => "Bearer {$result['accessToken']}"];
+
+        $this->getJson('/api/citizens/me', $headers)->assertOk();
+        $this->postJson('/api/auth/logout', [], $headers)->assertOk()->assertJsonPath('loggedOut', true);
+
+        $this->getJson('/api/citizens/me', $headers)->assertStatus(401);
+        $this->postJson('/api/auth/refresh', ['refreshToken' => $result['refreshToken']])
+            ->assertStatus(401)
+            ->assertJsonPath('error.code', 'INVALID_REFRESH_TOKEN');
+    }
+
+    public function test_staff_logout_revokes_only_the_current_token(): void
+    {
+        $login = $this->postJson('/api/staff/login', ['staffId' => 'OFF-001', 'password' => 'changeme123']);
+        $headers = ['Authorization' => "Bearer {$login->json('accessToken')}"];
+
+        $this->getJson('/api/staff/queue', $headers)->assertOk();
+        $this->postJson('/api/staff/logout', [], $headers)->assertOk();
+        $this->getJson('/api/staff/queue', $headers)->assertStatus(401);
+    }
+
     public function test_event_type_catalogue_lists_all_six(): void
     {
         $response = $this->getJson('/api/applications/event-types');

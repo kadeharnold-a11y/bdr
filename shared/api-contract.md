@@ -54,6 +54,12 @@ they registered without one.
 
 All authenticated citizen endpoints take `Authorization: Bearer <accessToken>`.
 
+### Logout
+`POST /auth/logout` (citizen, authenticated) → revokes **every** token for
+that citizen (access + refresh, all devices - there's no per-device session
+model). `POST /staff/logout` similarly, but only revokes the token used to
+call it.
+
 ## Citizens
 
 - `GET /citizens/me` → citizen profile

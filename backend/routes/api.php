@@ -33,6 +33,8 @@ Route::post('/payments/webhook', [PaymentController::class, 'webhook']);
 
 // --- Citizen (Sanctum token with 'citizen' ability) -----------------------
 Route::middleware(['auth:sanctum', 'citizen'])->group(function () {
+    Route::post('/auth/logout', [AuthController::class, 'logout']);
+
     Route::get('/citizens/me', [CitizenController::class, 'me']);
     Route::patch('/citizens/me', [CitizenController::class, 'update']);
     Route::get('/citizens/me/dashboard', [CitizenController::class, 'dashboard']);
@@ -56,6 +58,8 @@ Route::middleware(['auth:sanctum', 'citizen'])->group(function () {
 Route::post('/staff/login', [StaffController::class, 'login'])->middleware('throttle:staff-login');
 
 Route::middleware(['auth:sanctum', 'staff'])->group(function () {
+    Route::post('/staff/logout', [StaffController::class, 'logout']);
+
     Route::get('/staff/queue', [StaffController::class, 'queue']);
     Route::get('/staff/applications/{id}', [StaffController::class, 'show']);
     Route::get('/staff/applications/{id}/documents/{documentId}', [StaffController::class, 'downloadDocument']);

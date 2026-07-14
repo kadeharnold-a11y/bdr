@@ -1,9 +1,16 @@
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { api } from '../lib/api'
+import OtpInput from '../components/OtpInput.vue'
 
 const router = useRouter()
+
+// "24 000 0000" grouped display of the entered phone number.
+const maskedPhone = computed(() => {
+  const p = form.phone
+  if (!p) return ''
+  return `+233 ${p.replace(/(\d{2})(\d{3})(\d{0,4}).*/, '$1 $2 $3').trim()}`
+})
 
 const slides = [
   {
@@ -59,6 +66,9 @@ function goToSlide(index) {
 onMounted(startAutoplay)
 onBeforeUnmount(stopAutoplay)
 
+// Registration is a single route with staged steps (matches the reference site).
+const step = ref('contact') // 'contact' | 'otp'
+
 const form = reactive({
   phone: '',
   email: '',
@@ -88,32 +98,140 @@ async function onSubmit() {
   if (!validate()) return
   submitting.value = true
   try {
-    const { data } = await api.post('/auth/register/send-otp', {
-      phone: form.phone,
-      email: form.email || undefined,
-    })
-    // Stashed for whichever screen picks up OTP entry next - there's no
-    // verify-otp UI yet, this just proves the real request/response works.
-    sessionStorage.setItem('hbdrp_registration_token', data.registrationToken)
-    router.push({ name: 'login' })
-  } catch (err) {
-    const code = err.response?.data?.error?.code
-    if (code === 'PHONE_ALREADY_REGISTERED') {
-      // PRD 4.1 step 4: an existing account redirects straight to login.
-      router.push({ name: 'login' })
-    } else if (code === 'INVALID_PHONE') {
-      errors.phone = 'Enter a valid Ghana mobile number.'
-    } else if (code === 'INVALID_EMAIL') {
-      errors.email = 'Enter a valid email address.'
-    } else if (code === 'TOO_MANY_REQUESTS') {
-      errors.phone = 'Too many attempts. Please wait a few minutes and try again.'
-    } else {
-      errors.phone = 'Something went wrong. Please try again.'
-    }
+    // TODO: wire to Laravel API — POST /api/auth/register/send-otp
+    await new Promise((r) => setTimeout(r, 800))
+    goToOtp()
   } finally {
     submitting.value = false
   }
 }
+
+// --- OTP verification step ---
+const otp = ref('')
+const otpError = ref('')
+const verifying = ref(false)
+const resendSeconds = ref(0)
+let resendTimer = null
+
+function startResendCountdown() {
+  resendSeconds.value = 60
+  clearInterval(resendTimer)
+  resendTimer = setInterval(() => {
+    resendSeconds.value -= 1
+    if (resendSeconds.value <= 0) clearInterval(resendTimer)
+  }, 1000)
+}
+
+function goToOtp() {
+  step.value = 'otp'
+  otp.value = ''
+  otpError.value = ''
+  startResendCountdown()
+}
+
+function backToContact() {
+  step.value = 'contact'
+  clearInterval(resendTimer)
+}
+
+async function resendCode() {
+  if (resendSeconds.value > 0) return
+  // TODO: wire to Laravel API — POST /api/auth/register/send-otp (resend)
+  otp.value = ''
+  otpError.value = ''
+  startResendCountdown()
+}
+
+async function verifyOtp() {
+  if (otp.value.length !== 6) {
+    otpError.value = 'Enter the 6-digit code sent to your phone.'
+    return
+  }
+  verifying.value = true
+  otpError.value = ''
+  try {
+    // TODO: wire to Laravel API — POST /api/auth/register/verify-otp
+    await new Promise((r) => setTimeout(r, 800))
+    clearInterval(resendTimer)
+    step.value = 'profile'
+  } finally {
+    verifying.value = false
+  }
+}
+
+// --- Profile setup step (PRD 4.1 step 5) ---
+const profile = reactive({
+  fullName: '',
+  ghanaCard: '',
+})
+const profileErrors = reactive({
+  fullName: '',
+  ghanaCard: '',
+})
+const savingProfile = ref(false)
+
+// Auto-format Ghana Card as GHA-XXXXXXXXX-X while typing.
+function formatGhanaCard(event) {
+  const digits = event.target.value.toUpperCase().replace(/[^0-9]/g, '').slice(0, 10)
+  let out = 'GHA-'
+  if (digits.length) out += digits.slice(0, 9)
+  if (digits.length > 9) out += '-' + digits.slice(9, 10)
+  profile.ghanaCard = digits ? out : ''
+}
+
+function validateProfile() {
+  profileErrors.fullName = ''
+  profileErrors.ghanaCard = ''
+  if (profile.fullName.trim().length < 2) {
+    profileErrors.fullName = 'Enter your full name as shown on your Ghana Card.'
+  }
+  if (!/^GHA-\d{9}-\d$/.test(profile.ghanaCard)) {
+    profileErrors.ghanaCard = 'Enter a valid Ghana Card number (GHA-XXXXXXXXX-X).'
+  }
+  return !profileErrors.fullName && !profileErrors.ghanaCard
+}
+
+async function submitProfile() {
+  if (!validateProfile()) return
+  savingProfile.value = true
+  try {
+    // TODO: wire to Laravel API — POST /api/auth/register/profile
+    // (validates Ghana Card against NIA; DOB + gender are extracted server-side)
+    await new Promise((r) => setTimeout(r, 800))
+    step.value = 'pin'
+  } finally {
+    savingProfile.value = false
+  }
+}
+
+// --- PIN creation step (PRD 4.1 step 6) ---
+const pin = ref('')
+const confirmPin = ref('')
+const pinError = ref('')
+const creatingPin = ref(false)
+
+async function submitPin() {
+  pinError.value = ''
+  if (pin.value.length !== 6) {
+    pinError.value = 'Choose a 6-digit PIN.'
+    return
+  }
+  if (confirmPin.value !== pin.value) {
+    pinError.value = 'The two PINs do not match.'
+    return
+  }
+  creatingPin.value = true
+  try {
+    // TODO: wire to Laravel API — POST /api/auth/register/pin (hashed server-side)
+    await new Promise((r) => setTimeout(r, 800))
+    // Account created (PRD 4.1 step 7) — land on the citizen dashboard.
+    router.push({ name: 'dashboard' })
+  } finally {
+    creatingPin.value = false
+  }
+}
+
+onBeforeUnmount(() => clearInterval(resendTimer))
 </script>
 
 <template>
@@ -130,54 +248,154 @@ async function onSubmit() {
       </header>
 
       <div class="form-wrap">
-        <h2 class="form-title">Create an Account</h2>
-        <p class="form-help">
-          Enter your Ghana mobile number and email address. We will send a 6-digit verification code to your phone.
-        </p>
-
-        <form @submit.prevent="onSubmit" novalidate>
-          <label class="field-label" for="phone">Phone Number</label>
-          <div class="phone-input" :class="{ 'has-error': errors.phone }">
-            <span class="phone-prefix">
-              <span class="flag">🇬🇭</span> +233
-            </span>
-            <input
-              id="phone"
-              v-model="form.phone"
-              type="tel"
-              placeholder="24 000 0000"
-              inputmode="numeric"
-              maxlength="10"
-              @input="form.phone = form.phone.replace(/\D/g, '')"
-            />
-          </div>
-          <p class="field-hint" v-if="!errors.phone">
-            Enter digits only — e.g. <strong>24 000 0000</strong> (no +233 or leading 0)
+        <!-- Step 1: contact details -->
+        <template v-if="step === 'contact'">
+          <h2 class="form-title">Create an Account</h2>
+          <p class="form-help">
+            Enter your Ghana mobile number and email address. We will send a 6-digit verification code to your phone.
           </p>
-          <p class="field-error" v-else>{{ errors.phone }}</p>
 
-          <label class="field-label" for="email">Email Address</label>
-          <input
-            id="email"
-            v-model="form.email"
-            type="email"
-            class="text-input"
-            :class="{ 'has-error': errors.email }"
-            placeholder="Enter your email address"
-          />
-          <p class="field-hint" v-if="!errors.email">Your verification code will be sent here.</p>
-          <p class="field-error" v-else>{{ errors.email }}</p>
+          <form @submit.prevent="onSubmit" novalidate>
+            <label class="field-label" for="phone">Phone Number</label>
+            <div class="phone-input" :class="{ 'has-error': errors.phone }">
+              <span class="phone-prefix">
+                <span class="flag">🇬🇭</span> +233
+              </span>
+              <input
+                id="phone"
+                v-model="form.phone"
+                type="tel"
+                placeholder="24 000 0000"
+                inputmode="numeric"
+                maxlength="10"
+                @input="form.phone = form.phone.replace(/\D/g, '')"
+              />
+            </div>
+            <p class="field-hint" v-if="!errors.phone">
+              Enter digits only — e.g. <strong>24 000 0000</strong> (no +233 or leading 0)
+            </p>
+            <p class="field-error" v-else>{{ errors.phone }}</p>
 
-          <button type="submit" class="btn-primary" :disabled="submitting">
-            <span v-if="!submitting">Send verification code</span>
-            <span v-else>Sending…</span>
-          </button>
-        </form>
+            <label class="field-label" for="email">Email Address</label>
+            <input
+              id="email"
+              v-model="form.email"
+              type="email"
+              class="text-input"
+              :class="{ 'has-error': errors.email }"
+              placeholder="Enter your email address"
+            />
+            <p class="field-hint" v-if="!errors.email">Your verification code will be sent here.</p>
+            <p class="field-error" v-else>{{ errors.email }}</p>
 
-        <p class="switch-auth">
-          Already have an Account?
-          <router-link to="/login">Sign in Now</router-link>
-        </p>
+            <button type="submit" class="btn-primary" :disabled="submitting">
+              <span v-if="!submitting">Send verification code</span>
+              <span v-else>Sending…</span>
+            </button>
+          </form>
+
+          <p class="switch-auth">
+            Already have an Account?
+            <router-link to="/login">Sign in Now</router-link>
+          </p>
+        </template>
+
+        <!-- Step 2: OTP verification -->
+        <template v-else-if="step === 'otp'">
+          <button type="button" class="back-link" @click="backToContact">← Change number</button>
+          <h2 class="form-title">Verify your number</h2>
+          <p class="form-help">
+            Enter the 6-digit code we sent by SMS to <strong>{{ maskedPhone }}</strong>. The code is valid for 10 minutes.
+          </p>
+
+          <form @submit.prevent="verifyOtp" novalidate>
+            <label class="field-label">Verification Code</label>
+            <OtpInput v-model="otp" :has-error="!!otpError" @complete="verifyOtp" />
+            <p class="field-error" v-if="otpError">{{ otpError }}</p>
+
+            <button type="submit" class="btn-primary" :disabled="verifying">
+              <span v-if="!verifying">Verify &amp; Continue</span>
+              <span v-else>Verifying…</span>
+            </button>
+          </form>
+
+          <p class="switch-auth">
+            Didn't get the code?
+            <button
+              type="button"
+              class="link-button"
+              :disabled="resendSeconds > 0"
+              @click="resendCode"
+            >
+              <span v-if="resendSeconds > 0">Resend in {{ resendSeconds }}s</span>
+              <span v-else>Resend code</span>
+            </button>
+          </p>
+        </template>
+
+        <!-- Step 3: profile setup -->
+        <template v-else-if="step === 'profile'">
+          <h2 class="form-title">Complete your profile</h2>
+          <p class="form-help">
+            Enter your details exactly as they appear on your Ghana Card. Your date of birth and gender are read
+            from the card automatically.
+          </p>
+
+          <form @submit.prevent="submitProfile" novalidate>
+            <label class="field-label" for="fullName">Full Name</label>
+            <input
+              id="fullName"
+              v-model="profile.fullName"
+              type="text"
+              class="text-input"
+              :class="{ 'has-error': profileErrors.fullName }"
+              placeholder="e.g. Ama Serwaa Mensah"
+            />
+            <p class="field-error" v-if="profileErrors.fullName">{{ profileErrors.fullName }}</p>
+
+            <label class="field-label" for="ghanaCard">Ghana Card Number</label>
+            <input
+              id="ghanaCard"
+              :value="profile.ghanaCard"
+              type="text"
+              class="text-input"
+              :class="{ 'has-error': profileErrors.ghanaCard }"
+              placeholder="GHA-XXXXXXXXX-X"
+              @input="formatGhanaCard"
+            />
+            <p class="field-hint" v-if="!profileErrors.ghanaCard">
+              Validated against the NIA database.
+            </p>
+            <p class="field-error" v-else>{{ profileErrors.ghanaCard }}</p>
+
+            <button type="submit" class="btn-primary" :disabled="savingProfile">
+              <span v-if="!savingProfile">Continue</span>
+              <span v-else>Saving…</span>
+            </button>
+          </form>
+        </template>
+
+        <!-- Step 4: PIN creation -->
+        <template v-else-if="step === 'pin'">
+          <h2 class="form-title">Create your PIN</h2>
+          <p class="form-help">
+            Choose a 6-digit PIN to secure your account. You'll use it to sign in.
+          </p>
+
+          <form @submit.prevent="submitPin" novalidate>
+            <label class="field-label">New PIN</label>
+            <OtpInput v-model="pin" mask :has-error="!!pinError" />
+
+            <label class="field-label">Confirm PIN</label>
+            <OtpInput v-model="confirmPin" mask :has-error="!!pinError" @complete="submitPin" />
+            <p class="field-error" v-if="pinError">{{ pinError }}</p>
+
+            <button type="submit" class="btn-primary" :disabled="creatingPin">
+              <span v-if="!creatingPin">Create account</span>
+              <span v-else>Creating…</span>
+            </button>
+          </form>
+        </template>
       </div>
     </div>
 
@@ -444,6 +662,36 @@ async function onSubmit() {
   color: var(--brand-green);
   font-weight: 600;
   text-decoration: none;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--brand-green);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.link-button:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.back-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-bottom: 16px;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.back-link:hover {
+  color: var(--brand-green);
 }
 
 .info-panel {

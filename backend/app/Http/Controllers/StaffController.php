@@ -6,6 +6,7 @@ use App\Models\Application;
 use App\Models\AuditLog;
 use App\Models\StaffLoginChallenge;
 use App\Models\StaffUser;
+use App\Support\CertificateBuilder;
 use App\Support\Notifier;
 use App\Support\Tokens;
 use App\Support\TwoFactor;
@@ -188,6 +189,17 @@ class StaffController extends Controller
         return Storage::download($document->stored_path, $document->original_name);
     }
 
+    public function downloadCertificate(string $id)
+    {
+        $application = Application::find($id);
+        $certificate = $application?->certificate;
+        if (! $certificate) {
+            return $this->error('NOT_FOUND', 'No certificate available for this application', 404);
+        }
+
+        return Storage::download($certificate->pdf_path, "{$certificate->serial}.pdf");
+    }
+
     // Officer picks up an unassigned application (PRD 11.1 "My Queue").
     public function claim(Request $request, string $id): JsonResponse
     {
@@ -258,10 +270,13 @@ class StaffController extends Controller
         }
 
         $application->update(['status' => 'COMPLETED']);
-        AuditLog::record('staff', $request->user()->id, 'APPLICATION_COMPLETED', 'application', $application->id);
+        $certificate = CertificateBuilder::generateFor($application);
+        AuditLog::record('staff', $request->user()->id, 'APPLICATION_COMPLETED', 'application', $application->id, [
+            'certificateSerial' => $certificate->serial,
+        ]);
         Notifier::certificateReady($application);
 
-        return response()->json(['status' => 'COMPLETED']);
+        return response()->json(['status' => 'COMPLETED', 'certificate' => $certificate->toContract()]);
     }
 
     public function reject(Request $request, string $id): JsonResponse

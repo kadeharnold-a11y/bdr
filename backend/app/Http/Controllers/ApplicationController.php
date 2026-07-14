@@ -202,6 +202,19 @@ class ApplicationController extends Controller
         return Storage::download($document->stored_path, $document->original_name);
     }
 
+    // PRD 12: citizen downloads their own certificate PDF once the
+    // application is COMPLETED.
+    public function downloadCertificate(Request $request, string $id)
+    {
+        $application = $this->ownApplication($request, $id);
+        $certificate = $application?->certificate;
+        if (! $certificate) {
+            return $this->error('NOT_FOUND', 'No certificate available for this application', 404);
+        }
+
+        return Storage::download($certificate->pdf_path, "{$certificate->serial}.pdf");
+    }
+
     // PRD 6.2 steps 7-9: review + declaration + move to payment. Tracking ID
     // isn't assigned yet - that happens on payment success (PRD 7.2 step 6).
     public function submit(Request $request, string $id): JsonResponse

@@ -87,6 +87,7 @@ only - no SMS delivery, since there's no gateway (see Known Gaps).
 - `GET /applications/:id/documents/:documentId` → download a previously uploaded document (own application only)
 - `POST /applications/:id/submit` → validates required fields/documents, moves `DRAFT` → `PAYMENT_PENDING`
 - `POST /applications/:id/resubmit` → moves `CORRECTIONS_REQUIRED` → `UNDER_REVIEW` after the citizen has edited
+- `GET /applications/:id/certificate` → download the certificate PDF once `COMPLETED` (404 before then)
 
 ### Form fields (v1 placeholders)
 
@@ -144,6 +145,23 @@ No sandbox credentials exist yet, so payments run in mock mode
 
 Tracking ID format: `BDR-{YYYY}-{EVENT_CODE}-{6-digit sequence}`, e.g.
 `BDR-2026-EB-000001`. Event codes: `EB`/`LB`/`DR`/`FD`/`AD`/`SR`.
+
+## Certificates (PRD 12)
+
+Generated automatically when staff mark an application `COMPLETED`
+(`POST /staff/applications/:id/complete` now also returns a `certificate`
+object: `{ id, serial, applicationId, issuedAt }`). Certificate serial
+format: `CERT-{YYYY}-{EVENT_CODE}-{6-digit sequence}` - a **separate**
+sequence from the tracking ID, even for the same application.
+
+- `GET /certificates/verify/:serial` (public, no auth) → `{ serial, valid, registrationType, registeredName, eventDate, registrationDate, issuedAt }`. Deliberately minimal, mirrors the tracking endpoint's data minimization - no phone/email/Ghana Card/full form data.
+- `GET /applications/:id/certificate` (citizen, own) and `GET /staff/applications/:id/certificate` (any staff role) → download the actual PDF.
+
+The PDF embeds a QR code pointing at the verify endpoint above, and BDR
+branding/seal text, but **no real PKI digital signature** - that needs an
+actual BDR-held signing key/HSM, out of scope for this v1 slice (see Known
+Gaps). Field lists per event type mirror the same documented placeholders
+as the application form itself (`backend/app/Support/CertificateBuilder.php`).
 
 ## Application status values
 
@@ -219,7 +237,10 @@ this exists:
 - No **real Npontu Pay integration** - mock mode only, no sandbox creds.
 - 2FA (TOTP) is now implemented and mandatory for staff, but there's no
   recovery-code / backup-device flow if someone loses their authenticator.
-- No **certificate PDF generation**, QR codes, or digital signing.
+- Certificate PDF generation + QR verification now exist (see Certificates
+  section above), but there's no real PKI digital signature/BDR seal image
+  (text-only placeholder), and field lists are the same documented
+  placeholders as the rest of the app.
 - Staff account provisioning now has a real API (see above), but district/
   office/queue/working-hours assignment (PRD 9.2 steps 3-5) still isn't
   modeled, and there's no frontend UI for any of this yet - API only.

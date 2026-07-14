@@ -3,6 +3,7 @@
 use App\Http\Controllers\AdminConfigController;
 use App\Http\Controllers\ApplicationController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CertificateController;
 use App\Http\Controllers\CitizenController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\StaffAdminController;
@@ -28,6 +29,7 @@ Route::post('/auth/refresh', [AuthController::class, 'refresh']);
 // --- Public, no auth ------------------------------------------------------
 Route::get('/applications/event-types', [ApplicationController::class, 'eventTypes']);
 Route::get('/tracking/{trackingId}', [TrackingController::class, 'show']);
+Route::get('/certificates/verify/{serial}', [CertificateController::class, 'verify']);
 // PRD 7.2 step 5: provider webhook, authenticated by signature (TODO) not by
 // a citizen session.
 Route::post('/payments/webhook', [PaymentController::class, 'webhook']);
@@ -51,6 +53,7 @@ Route::middleware(['auth:sanctum', 'citizen'])->group(function () {
     Route::get('/applications/{id}/documents/{documentId}', [ApplicationController::class, 'downloadDocument']);
     Route::post('/applications/{id}/submit', [ApplicationController::class, 'submit']);
     Route::post('/applications/{id}/resubmit', [ApplicationController::class, 'resubmit']);
+    Route::get('/applications/{id}/certificate', [ApplicationController::class, 'downloadCertificate']);
 
     Route::post('/payments/initiate', [PaymentController::class, 'initiate']);
     Route::post('/payments/mock-confirm', [PaymentController::class, 'mockConfirm']);
@@ -67,6 +70,7 @@ Route::middleware(['auth:sanctum', 'staff'])->group(function () {
     Route::get('/staff/queue', [StaffController::class, 'queue']);
     Route::get('/staff/applications/{id}', [StaffController::class, 'show']);
     Route::get('/staff/applications/{id}/documents/{documentId}', [StaffController::class, 'downloadDocument']);
+    Route::get('/staff/applications/{id}/certificate', [StaffController::class, 'downloadCertificate']);
     Route::post('/staff/applications/{id}/claim', [StaffController::class, 'claim']);
 
     Route::middleware('staff:REGISTRATION_OFFICER,SUPERVISOR,ADMIN')->group(function () {

@@ -42,6 +42,11 @@ class Application extends Model
         return $this->hasMany(Payment::class);
     }
 
+    public function certificate()
+    {
+        return $this->hasOne(Certificate::class);
+    }
+
     // Response shape shared/api-contract.md documents for application objects.
     public function toContract(): array
     {

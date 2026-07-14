@@ -440,9 +440,31 @@ class ApiContractTest extends TestCase
             ->assertJsonPath('status', 'UNDER_REVIEW');
 
         $this->postJson("/api/staff/applications/{$id}/approve", [], $headers)->assertOk();
-        $this->postJson("/api/staff/applications/{$id}/complete", [], $headers)
-            ->assertOk()
-            ->assertJsonPath('status', 'COMPLETED');
+        $complete = $this->postJson("/api/staff/applications/{$id}/complete", [], $headers);
+        $complete->assertOk()->assertJsonPath('status', 'COMPLETED');
+
+        $serial = $complete->json('certificate.serial');
+        $this->assertMatchesRegularExpression('/^CERT-\d{4}-EB-\d{6}$/', $serial);
+        Storage::disk('local')->assertExists("certificates/{$serial}.pdf");
+
+        // Citizen can download their own certificate PDF.
+        $citizenHeaders = ['Authorization' => "Bearer {$result['accessToken']}"];
+        $download = $this->get("/api/applications/{$id}/certificate", $citizenHeaders);
+        $download->assertOk();
+        $this->assertStringStartsWith('%PDF', $download->streamedContent());
+
+        // Staff can download it too.
+        $this->get("/api/staff/applications/{$id}/certificate", $headers)->assertOk();
+
+        // Public verification page exposes only registration type/name/dates.
+        $verify = $this->getJson("/api/certificates/verify/{$serial}");
+        $verify->assertOk()
+            ->assertJsonPath('valid', true)
+            ->assertJsonPath('registrationType', 'early_birth')
+            ->assertJsonPath('registeredName', self::EARLY_BIRTH_FORM['childFullName'])
+            ->assertJsonMissingPath('formData');
+
+        $this->getJson('/api/certificates/verify/CERT-BOGUS')->assertNotFound();
     }
 
     public function test_corrections_round_trip(): void

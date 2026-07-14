@@ -5,6 +5,7 @@ use App\Http\Controllers\ApplicationController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CitizenController;
 use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\StaffAdminController;
 use App\Http\Controllers\StaffController;
 use App\Http\Controllers\TrackingController;
 use Illuminate\Support\Facades\Route;
@@ -77,5 +78,9 @@ Route::middleware(['auth:sanctum', 'staff'])->group(function () {
     Route::middleware('staff:ADMIN')->group(function () {
         Route::get('/staff/admin/event-types', [AdminConfigController::class, 'index']);
         Route::patch('/staff/admin/event-types/{eventType}', [AdminConfigController::class, 'update']);
+
+        Route::get('/staff/admin/users', [StaffAdminController::class, 'index']);
+        Route::post('/staff/admin/users', [StaffAdminController::class, 'store']);
+        Route::patch('/staff/admin/users/{id}', [StaffAdminController::class, 'update']);
     });
 });

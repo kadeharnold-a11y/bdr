@@ -174,6 +174,15 @@ Dev seed accounts (non-production only, see `backend/database/seeders/DatabaseSe
 - `GET /staff/admin/event-types` → full config per event type (fees, SLA durations, express toggle)
 - `PATCH /staff/admin/event-types/:eventType` `{ standardFee?, expressFee?, standardDurationDays?, expressDurationDays?, expressEnabled?, reason? }` → updates config; `reason` is required whenever a fee changes (PRD 9.1.1 "Fee Change Reason"). Validates `expressFee > standardFee` and `expressDurationDays < standardDurationDays`. Changes only affect new applications - in-flight ones keep their locked-in fee/tier.
 
+### Staff account management (PRD 9.2, ADMIN role only)
+
+- `GET /staff/admin/users` → list all staff accounts
+- `POST /staff/admin/users` `{ staffId, fullName, role, email? }` → creates an account with a random temporary password, returned **once** in the response (`temporaryPassword`) and never retrievable again. If `email` is given, sends a real invite email (same mock/real-SMTP fallback as OTP email) with the staff ID, role, and temporary password.
+- `PATCH /staff/admin/users/:id` `{ fullName?, role?, active? }` → updates a staff account. Setting `active: false` immediately revokes their ability to log in and **reassigns any of their in-progress applications** (`UNDER_REVIEW`/`CORRECTIONS_REQUIRED`/`AWAITING_APPROVAL`) to an active `SUPERVISOR` (PRD 9.2 step 7) - there's no per-officer supervisor hierarchy modeled, so this picks any active supervisor, not necessarily "their" supervisor.
+
+Not modeled yet: district/office assignment, Standard/Express queue
+assignment, working-hours profiles (PRD 9.2 steps 3-5) - see Known Gaps.
+
 ## Security notes
 
 - CORS is restricted to `FRONTEND_ORIGIN` (comma-separated list, defaults to `http://localhost:5173`) - requests from other origins are rejected.
@@ -203,7 +212,8 @@ this exists:
 - No **real Npontu Pay integration** - mock mode only, no sandbox creds.
 - No **2FA** for back-office users.
 - No **certificate PDF generation**, QR codes, or digital signing.
-- No **back-office admin UI** for provisioning staff accounts - seeded dev
-  accounts only.
+- Staff account provisioning now has a real API (see above), but district/
+  office/queue/working-hours assignment (PRD 9.2 steps 3-5) still isn't
+  modeled, and there's no frontend UI for any of this yet - API only.
 - SLA "working days" math skips weekends only - no Ghana public holidays
   calendar (PRD 9.1.2) since there's no admin UI to configure one.

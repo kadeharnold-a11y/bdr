@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Mail\OtpMail;
+use App\Mail\StaffInviteMail;
 use App\Models\AuthSession;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -503,6 +504,58 @@ class ApiContractTest extends TestCase
         $this->patchJson('/api/staff/admin/event-types/early_birth', ['standardFee' => 8, 'reason' => 'test adjustment'], $adminHeaders)
             ->assertOk()
             ->assertJsonPath('standardFee', 8);
+    }
+
+    public function test_admin_can_create_a_staff_user_and_the_invite_email_actually_sends(): void
+    {
+        Mail::fake();
+        $adminHeaders = ['Authorization' => 'Bearer '.$this->staffToken('ADM-001')];
+
+        $this->postJson('/api/staff/admin/users', [
+            'staffId' => 'OFF-777',
+            'fullName' => 'New Officer',
+            'role' => 'REGISTRATION_OFFICER',
+            'email' => 'new.officer@example.com',
+        ], $adminHeaders)
+            ->assertCreated()
+            ->assertJsonPath('staffId', 'OFF-777')
+            ->assertJsonStructure(['temporaryPassword']);
+
+        Mail::assertSent(StaffInviteMail::class, fn (StaffInviteMail $mail) => $mail->hasTo('new.officer@example.com'));
+
+        $this->postJson('/api/staff/admin/users', [
+            'staffId' => 'OFF-777', 'fullName' => 'Dupe', 'role' => 'REGISTRATION_OFFICER',
+        ], $adminHeaders)->assertStatus(409)->assertJsonPath('error.code', 'STAFF_ID_TAKEN');
+    }
+
+    public function test_non_admin_cannot_manage_staff_users(): void
+    {
+        $officerHeaders = ['Authorization' => 'Bearer '.$this->staffToken('OFF-001')];
+        $this->getJson('/api/staff/admin/users', $officerHeaders)->assertStatus(403);
+    }
+
+    public function test_deactivating_staff_reassigns_their_in_progress_applications_to_a_supervisor(): void
+    {
+        $adminHeaders = ['Authorization' => 'Bearer '.$this->staffToken('ADM-001')];
+        $officerHeaders = ['Authorization' => 'Bearer '.$this->staffToken('OFF-001')];
+
+        $result = $this->registerCitizen();
+        $id = $this->submittedApplication($result['accessToken'], 'early_birth', self::EARLY_BIRTH_FORM, self::EARLY_BIRTH_DOCS);
+        $this->payFor($id, $result['accessToken']);
+        $this->postJson("/api/staff/applications/{$id}/claim", [], $officerHeaders)->assertOk();
+
+        $officerId = \App\Models\StaffUser::where('staff_id', 'OFF-001')->value('id');
+        $supervisorId = \App\Models\StaffUser::where('staff_id', 'SUP-001')->value('id');
+
+        $this->patchJson("/api/staff/admin/users/{$officerId}", ['active' => false], $adminHeaders)
+            ->assertOk()
+            ->assertJsonPath('active', false);
+
+        $this->assertEquals($supervisorId, \App\Models\Application::find($id)->assigned_staff_id);
+
+        // Deactivated officer can no longer authenticate.
+        $this->postJson('/api/staff/login', ['staffId' => 'OFF-001', 'password' => 'changeme123'])
+            ->assertStatus(401);
     }
 
     public function test_otp_send_is_rate_limited_per_phone(): void

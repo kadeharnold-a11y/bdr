@@ -27,4 +27,9 @@ class Citizen extends Model
     {
         return $this->hasMany(Application::class);
     }
+
+    public function notifications()
+    {
+        return $this->hasMany(Notification::class)->orderByDesc('created_at');
+    }
 }

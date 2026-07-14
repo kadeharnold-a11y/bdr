@@ -38,6 +38,8 @@ Route::middleware(['auth:sanctum', 'citizen'])->group(function () {
     Route::get('/citizens/me', [CitizenController::class, 'me']);
     Route::patch('/citizens/me', [CitizenController::class, 'update']);
     Route::get('/citizens/me/dashboard', [CitizenController::class, 'dashboard']);
+    Route::get('/citizens/me/notifications', [CitizenController::class, 'notifications']);
+    Route::post('/citizens/me/notifications/{id}/read', [CitizenController::class, 'markNotificationRead']);
 
     Route::get('/applications', [ApplicationController::class, 'index']);
     Route::post('/applications', [ApplicationController::class, 'store']);

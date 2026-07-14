@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Application;
 use App\Models\AuditLog;
 use App\Models\StaffUser;
+use App\Support\Notifier;
 use App\Support\Tokens;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -171,6 +172,7 @@ class StaffController extends Controller
             'fields' => $request->input('fields'),
             'notes' => $request->input('notes'),
         ]);
+        Notifier::correctionsRequested($application);
 
         return response()->json(['status' => 'CORRECTIONS_REQUIRED']);
     }
@@ -187,6 +189,7 @@ class StaffController extends Controller
 
         $application->update(['status' => 'APPROVED']);
         AuditLog::record('staff', $request->user()->id, 'APPLICATION_APPROVED', 'application', $application->id);
+        Notifier::applicationApproved($application);
 
         return response()->json(['status' => 'APPROVED']);
     }
@@ -205,6 +208,7 @@ class StaffController extends Controller
 
         $application->update(['status' => 'COMPLETED']);
         AuditLog::record('staff', $request->user()->id, 'APPLICATION_COMPLETED', 'application', $application->id);
+        Notifier::certificateReady($application);
 
         return response()->json(['status' => 'COMPLETED']);
     }
@@ -223,6 +227,7 @@ class StaffController extends Controller
         AuditLog::record('staff', $request->user()->id, 'APPLICATION_REJECTED', 'application', $application->id, [
             'reason' => $request->input('reason'),
         ]);
+        Notifier::applicationRejected($application, $request->input('reason'));
 
         return response()->json(['status' => 'REJECTED']);
     }

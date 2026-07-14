@@ -6,6 +6,7 @@ use App\Models\Application;
 use App\Models\AuditLog;
 use App\Models\EventTypeConfig;
 use App\Models\Payment;
+use App\Support\Notifier;
 use App\Support\TrackingId;
 use App\Support\WorkingDays;
 use Illuminate\Http\JsonResponse;
@@ -48,6 +49,7 @@ class PaymentController extends Controller
             'trackingId' => $application->tracking_id,
             'providerRef' => $providerRef,
         ]);
+        Notifier::applicationSubmitted($application);
 
         return [
             'trackingId' => $application->tracking_id,

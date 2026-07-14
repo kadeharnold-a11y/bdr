@@ -440,6 +440,40 @@ class ApiContractTest extends TestCase
             ->assertJsonPath('status', 'UNDER_REVIEW');
     }
 
+    public function test_notifications_are_created_through_the_application_lifecycle(): void
+    {
+        $result = $this->registerCitizen();
+        $citizenHeaders = ['Authorization' => "Bearer {$result['accessToken']}"];
+        $id = $this->submittedApplication($result['accessToken'], 'early_birth', self::EARLY_BIRTH_FORM, self::EARLY_BIRTH_DOCS);
+        $this->payFor($id, $result['accessToken']);
+
+        // Submitted (from payment confirmation) shows up unread on the dashboard.
+        $dashboard = $this->getJson('/api/citizens/me/dashboard', $citizenHeaders);
+        $dashboard->assertOk();
+        $this->assertCount(1, $dashboard->json('notifications'));
+        $this->assertEquals('APPLICATION_SUBMITTED', $dashboard->json('notifications.0.type'));
+        $this->assertFalse($dashboard->json('notifications.0.read'));
+
+        $staffHeaders = ['Authorization' => 'Bearer '.$this->staffToken()];
+        $this->postJson("/api/staff/applications/{$id}/claim", [], $staffHeaders)->assertOk();
+        $this->postJson("/api/staff/applications/{$id}/approve", [], $staffHeaders)->assertOk();
+        $this->postJson("/api/staff/applications/{$id}/complete", [], $staffHeaders)->assertOk();
+
+        $all = $this->getJson('/api/citizens/me/notifications', $citizenHeaders);
+        $all->assertOk();
+        $types = collect($all->json())->pluck('type')->all();
+        $this->assertEquals(['CERTIFICATE_READY', 'APPLICATION_APPROVED', 'APPLICATION_SUBMITTED'], $types);
+
+        $firstId = $all->json('0.id');
+        $this->postJson("/api/citizens/me/notifications/{$firstId}/read", [], $citizenHeaders)
+            ->assertOk()
+            ->assertJsonPath('read', true);
+
+        // Marking one read only drops it from the dashboard's unread feed, not from the full list.
+        $dashboardAfter = $this->getJson('/api/citizens/me/dashboard', $citizenHeaders);
+        $this->assertCount(2, $dashboardAfter->json('notifications'));
+    }
+
     public function test_staff_cannot_use_citizen_routes_and_vice_versa(): void
     {
         $result = $this->registerCitizen();

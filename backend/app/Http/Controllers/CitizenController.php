@@ -60,11 +60,30 @@ class CitizenController extends Controller
             'submitted_at' => $a->submitted_at?->toISOString(),
         ])->values();
 
+        $notifications = $request->user()->notifications()->whereNull('read_at')->limit(10)->get();
+
         return response()->json([
             'activeApplications' => $summarize($active),
             'drafts' => $summarize($drafts),
             'completedApplications' => $summarize($completed),
-            'notifications' => [], // TODO: notifications table not built yet in this v1 slice.
+            'notifications' => $notifications->map->toContract()->values(),
         ]);
+    }
+
+    public function notifications(Request $request): JsonResponse
+    {
+        return response()->json($request->user()->notifications()->get()->map->toContract()->values());
+    }
+
+    public function markNotificationRead(Request $request, string $id): JsonResponse
+    {
+        $notification = $request->user()->notifications()->where('id', $id)->first();
+        if (! $notification) {
+            return response()->json(['error' => ['code' => 'NOT_FOUND', 'message' => 'Notification not found']], 404);
+        }
+
+        $notification->update(['read_at' => now()]);
+
+        return response()->json($notification->toContract());
     }
 }

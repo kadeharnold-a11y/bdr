@@ -64,7 +64,16 @@ call it.
 
 - `GET /citizens/me` → citizen profile
 - `PATCH /citizens/me` `{ email }` → updated profile
-- `GET /citizens/me/dashboard` → `{ activeApplications[], drafts[], completedApplications[], notifications[] }`
+- `GET /citizens/me/dashboard` → `{ activeApplications[], drafts[], completedApplications[], notifications[] }` - `notifications` here is just the unread feed (max 10), for the dashboard bell icon
+- `GET /citizens/me/notifications` → full notification history (read + unread)
+- `POST /citizens/me/notifications/:id/read` → marks one read
+
+Notification objects: `{ id, type, title, body, applicationId, read, createdAt }`.
+`type` is one of `APPLICATION_SUBMITTED`, `CORRECTIONS_REQUIRED`,
+`APPLICATION_APPROVED`, `CERTIFICATE_READY`, `APPLICATION_REJECTED` -
+created automatically at those points in the application lifecycle
+(PRD 10.4's citizen-facing notification rows). These are in-app/dashboard
+only - no SMS delivery, since there's no gateway (see Known Gaps).
 
 ## Applications
 

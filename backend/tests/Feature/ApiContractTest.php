@@ -260,17 +260,28 @@ class ApiContractTest extends TestCase
             ->assertJsonPath('error.code', 'MISSING_DOCUMENTS');
     }
 
-    public function test_unsupported_event_type_is_rejected_on_submit(): void
+    public function test_creating_an_application_for_an_unknown_event_type_is_rejected(): void
     {
         $result = $this->registerCitizen();
         $headers = ['Authorization' => "Bearer {$result['accessToken']}"];
 
-        $created = $this->postJson('/api/applications', ['eventType' => 'adoption', 'tier' => 'standard'], $headers);
-        $created->assertCreated();
-
-        $this->postJson("/api/applications/{$created->json('id')}/submit", [], $headers)
+        $this->postJson('/api/applications', ['eventType' => 'time_travel', 'tier' => 'standard'], $headers)
             ->assertStatus(400)
-            ->assertJsonPath('error.code', 'UNSUPPORTED_EVENT_TYPE');
+            ->assertJsonPath('error.code', 'INVALID_EVENT_TYPE');
+    }
+
+    // Every event type currently marked form_supported must have a matching
+    // config/form_schemas.php entry, or submit() would 400 with
+    // UNSUPPORTED_EVENT_TYPE despite the catalogue promising a real form.
+    public function test_every_form_supported_event_type_has_a_form_schema(): void
+    {
+        $catalogue = collect($this->getJson('/api/applications/event-types')->json());
+        foreach ($catalogue->where('formSupported', true) as $eventType) {
+            $this->assertNotNull(
+                config("form_schemas.{$eventType['eventType']}"),
+                "{$eventType['eventType']} is form_supported but has no form_schemas entry"
+            );
+        }
     }
 
     public function test_full_flow_generates_prd_tracking_id_and_public_tracking_minimizes_data(): void
@@ -303,6 +314,45 @@ class ApiContractTest extends TestCase
 
         $trackingId = $this->payFor($id, $result['accessToken']);
         $this->assertMatchesRegularExpression('/^BDR-\d{4}-DR-\d{6}$/', $trackingId);
+    }
+
+    public function test_all_six_event_types_are_form_supported_and_each_produces_the_right_tracking_prefix(): void
+    {
+        $catalogue = collect($this->getJson('/api/applications/event-types')->json());
+        $this->assertTrue($catalogue->every(fn ($e) => $e['formSupported']));
+
+        $cases = [
+            'late_birth' => ['code' => 'LB', 'form' => [
+                'childFullName' => 'Baby Owusu', 'childSex' => 'F', 'childDateOfBirth' => '2020-01-01',
+                'placeOfBirth' => 'Home birth', 'motherFullName' => 'Abena Owusu', 'fatherFullName' => 'Kojo Owusu',
+                'reasonForLateRegistration' => 'Family relocated', 'informantFullName' => 'Abena Owusu',
+                'informantRelationshipToChild' => 'Mother', 'informantPhone' => '244111222',
+            ], 'docs' => ['swornDeclarationOfLateBirth', 'proofOfBirthRecord', 'parentGhanaCardCopy']],
+            'foetal_death' => ['code' => 'FD', 'form' => [
+                'motherFullName' => 'Adjoa Boateng', 'motherGhanaCardNumber' => 'GHA-000111222-3',
+                'gestationalAgeWeeks' => '30', 'dateOfFoetalDeath' => '2026-05-10', 'facilityName' => 'Ridge Hospital',
+                'informantFullName' => 'Adjoa Boateng', 'informantPhone' => '244111222',
+            ], 'docs' => ['medicalCertificateFoetalDeath', 'motherIdCopy']],
+            'adoption' => ['code' => 'AD', 'form' => [
+                'childFullName' => 'Nana Yeboah', 'childDateOfBirth' => '2022-03-15',
+                'adoptiveMotherFullName' => 'Efua Yeboah', 'adoptiveFatherFullName' => 'Kwesi Yeboah',
+                'courtOrderReference' => 'CO-2026-00123', 'courtName' => 'Accra High Court',
+                'informantFullName' => 'Efua Yeboah', 'informantPhone' => '244111222',
+            ], 'docs' => ['courtAdoptionOrder', 'adoptiveParentGhanaCardCopy']],
+            'surrogacy' => ['code' => 'SR', 'form' => [
+                'childFullName' => 'Kojo Asante', 'childDateOfBirth' => '2026-04-01',
+                'intendedMotherFullName' => 'Akosua Asante', 'intendedFatherFullName' => 'Yaw Asante',
+                'surrogacyAgreementReference' => 'SA-2026-0099', 'facilityName' => 'Lister Hospital',
+                'informantFullName' => 'Akosua Asante', 'informantPhone' => '244111222',
+            ], 'docs' => ['surrogacyAgreementDocument', 'hospitalBirthNotification', 'intendedParentGhanaCardCopy']],
+        ];
+
+        $result = $this->registerCitizen();
+        foreach ($cases as $eventType => $case) {
+            $id = $this->submittedApplication($result['accessToken'], $eventType, $case['form'], $case['docs']);
+            $trackingId = $this->payFor($id, $result['accessToken']);
+            $this->assertMatchesRegularExpression("/^BDR-\d{4}-{$case['code']}-\d{6}$/", $trackingId);
+        }
     }
 
     public function test_citizen_can_download_own_document_but_not_via_other_application(): void

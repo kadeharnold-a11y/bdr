@@ -15,15 +15,14 @@ class DatabaseSeeder extends Seeder
         // Seed the six PRD event types (9.1 fee/duration config is
         // admin-editable in principle; these are placeholder defaults per
         // OQ-01/OQ-02 - the real fee schedule is still an open question in
-        // the PRD). Only early_birth and death ship with a real application
-        // form in this v1 slice.
+        // the PRD). All six now have a real application form.
         $eventTypes = [
             ['event_type' => 'early_birth', 'label' => 'Early Birth Registration', 'standard_fee' => 5, 'express_fee' => 50, 'standard_duration_days' => 15, 'express_duration_days' => 3, 'express_enabled' => true, 'form_supported' => true],
-            ['event_type' => 'late_birth', 'label' => 'Late Birth Registration', 'standard_fee' => 20, 'express_fee' => 100, 'standard_duration_days' => 20, 'express_duration_days' => 5, 'express_enabled' => true, 'form_supported' => false],
+            ['event_type' => 'late_birth', 'label' => 'Late Birth Registration', 'standard_fee' => 20, 'express_fee' => 100, 'standard_duration_days' => 20, 'express_duration_days' => 5, 'express_enabled' => true, 'form_supported' => true],
             ['event_type' => 'death', 'label' => 'Death Registration', 'standard_fee' => 5, 'express_fee' => 50, 'standard_duration_days' => 15, 'express_duration_days' => 3, 'express_enabled' => true, 'form_supported' => true],
-            ['event_type' => 'foetal_death', 'label' => 'Foetal Death Registration', 'standard_fee' => 5, 'express_fee' => 50, 'standard_duration_days' => 15, 'express_duration_days' => 3, 'express_enabled' => true, 'form_supported' => false],
-            ['event_type' => 'adoption', 'label' => 'Adoption Registration', 'standard_fee' => 30, 'express_fee' => 150, 'standard_duration_days' => 20, 'express_duration_days' => 7, 'express_enabled' => true, 'form_supported' => false],
-            ['event_type' => 'surrogacy', 'label' => 'Surrogacy Birth Registration', 'standard_fee' => 30, 'express_fee' => 150, 'standard_duration_days' => 20, 'express_duration_days' => 7, 'express_enabled' => true, 'form_supported' => false],
+            ['event_type' => 'foetal_death', 'label' => 'Foetal Death Registration', 'standard_fee' => 5, 'express_fee' => 50, 'standard_duration_days' => 15, 'express_duration_days' => 3, 'express_enabled' => true, 'form_supported' => true],
+            ['event_type' => 'adoption', 'label' => 'Adoption Registration', 'standard_fee' => 30, 'express_fee' => 150, 'standard_duration_days' => 20, 'express_duration_days' => 7, 'express_enabled' => true, 'form_supported' => true],
+            ['event_type' => 'surrogacy', 'label' => 'Surrogacy Birth Registration', 'standard_fee' => 30, 'express_fee' => 150, 'standard_duration_days' => 20, 'express_duration_days' => 7, 'express_enabled' => true, 'form_supported' => true],
         ];
 
         foreach ($eventTypes as $config) {

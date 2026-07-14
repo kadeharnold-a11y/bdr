@@ -62,7 +62,7 @@ All authenticated citizen endpoints take `Authorization: Bearer <accessToken>`.
 
 ## Applications
 
-- `GET /applications/event-types` (public) → catalogue of all 6 PRD event types with fees/SLA durations. Only `early_birth` and `death` have `formSupported: true` right now - the rest are listed but rejected on submit.
+- `GET /applications/event-types` (public) → catalogue of all 6 PRD event types with fees/SLA durations. All 6 now have `formSupported: true`.
 - `POST /applications` `{ eventType, tier }` → creates a `DRAFT` application
 - `GET /applications` → list own applications, optional `?status=`
 - `GET /applications/:id` → full detail incl. `documents[]`
@@ -90,6 +90,28 @@ in `backend/config/form_schemas.php`:
 `placeOfDeath`, `causeOfDeath`, `informantFullName`,
 `informantRelationshipToDeceased`, `informantPhone`. Required documents:
 `medicalCertificateOfCause`, `deceasedIdCopy`.
+
+**late_birth** - required `formData`: `childFullName`, `childSex`,
+`childDateOfBirth`, `placeOfBirth`, `motherFullName`, `fatherFullName`,
+`reasonForLateRegistration`, `informantFullName`,
+`informantRelationshipToChild`, `informantPhone`. Required documents:
+`swornDeclarationOfLateBirth`, `proofOfBirthRecord`, `parentGhanaCardCopy`.
+
+**foetal_death** - required `formData`: `motherFullName`,
+`motherGhanaCardNumber`, `gestationalAgeWeeks`, `dateOfFoetalDeath`,
+`facilityName`, `informantFullName`, `informantPhone`. Required documents:
+`medicalCertificateFoetalDeath`, `motherIdCopy`.
+
+**adoption** - required `formData`: `childFullName`, `childDateOfBirth`,
+`adoptiveMotherFullName`, `adoptiveFatherFullName`, `courtOrderReference`,
+`courtName`, `informantFullName`, `informantPhone`. Required documents:
+`courtAdoptionOrder`, `adoptiveParentGhanaCardCopy`.
+
+**surrogacy** - required `formData`: `childFullName`, `childDateOfBirth`,
+`intendedMotherFullName`, `intendedFatherFullName`,
+`surrogacyAgreementReference`, `facilityName`, `informantFullName`,
+`informantPhone`. Required documents: `surrogacyAgreementDocument`,
+`hospitalBirthNotification`, `intendedParentGhanaCardCopy`.
 
 ## Payments (Npontu Pay)
 
@@ -147,9 +169,10 @@ Dev seed accounts (non-production only, see `backend/database/seeders/DatabaseSe
 Deliberately out of scope for this v1 slice - flag before assuming any of
 this exists:
 
-- Only **Early Birth Registration** and **Death Registration** have real
-  forms/validation. The other 4 event types are listed in the catalogue
-  but rejected on submit.
+- All 6 event types now have real forms/validation, but every field list is
+  still a **documented placeholder** - the PRD's actual field-list
+  attachment (sections 5A-5F) never showed up. Reconcile against the real
+  lists once someone tracks them down.
 - No **dynamic workflow engine** (PRD section 10) - no configurable
   per-stage SLAs, no auto-escalation, no auto-advance-to-certificate safety
   net. Application status is a simplified linear model instead.

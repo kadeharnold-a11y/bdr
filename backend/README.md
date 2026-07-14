@@ -1,32 +1,42 @@
-# HBDRP Backend
+# HBDRP Backend (Laravel)
 
-Node/Express API for the citizen self-service portal and back-office, per
-`shared/api-contract.md`. Uses SQLite (`node:sqlite`, built into Node 22.5+)
-so there's no database server to install for local dev.
+Laravel 13 API for the citizen self-service portal and back-office, per
+`shared/api-contract.md`. Uses SQLite (Laravel's default) so there's no
+database server to install for local dev.
+
+This replaces the earlier Node/Express prototype, which lives on the
+`feature/backend-scaffold` branch. The API contract (URLs, request/response
+shapes) is identical - the frontend doesn't care which stack serves it.
 
 ## Setup
 
 ```bash
 cd backend
 cp .env.example .env
-npm install
-npm run dev
+composer install
+php artisan key:generate
+php artisan migrate --seed
+php artisan serve --port 4000
 ```
 
-Server runs on `http://localhost:4000` (`PORT` in `.env`). The SQLite file
-and schema are created automatically on first run at `backend/data/hbdrp.db`.
-
-Dev-only staff accounts are seeded on startup and printed to the console
+Server runs on `http://localhost:4000`. Dev-only staff accounts are seeded
 (`ADM-001`, `OFF-001`, `SUP-001`, `FIN-001`, password `changeme123`).
+
+## Tests
+
+```bash
+php artisan test
+```
 
 ## Requirements
 
-- Node.js >= 22.5 (uses the built-in `node:sqlite` module)
+- PHP >= 8.2, Composer
 
 ## Notes
 
-- `DEV_EXPOSE_OTP=true` in `.env.example` echoes OTP codes in API responses
-  since no SMS gateway is wired up yet - never enable this outside local dev.
+- `DEV_EXPOSE_OTP=true` in `.env` echoes OTP codes in API responses since no
+  SMS gateway is wired up yet - never enable this outside local dev. OTPs are
+  also written to `storage/logs/laravel.log`.
 - `NPONTU_PAY_MODE=mock` lets the full payment flow run without real Npontu
   Pay credentials - see `shared/api-contract.md` for the mock-confirm flow.
 - See `shared/api-contract.md`'s "Known gaps" section for what's

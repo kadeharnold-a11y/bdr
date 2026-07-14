@@ -1,8 +1,12 @@
 # HBDRP API Contract (v1 slice)
 
-This documents what the Node/Express backend in `backend/` actually
+This documents what the **Laravel** backend in `backend/` actually
 implements today, for whoever is wiring up the frontend. It is **not** the
 full PRD scope - see "Known gaps" at the bottom.
+
+(History: this API was first prototyped in Node/Express - that version
+lives on the `feature/backend-scaffold` branch. The contract below is
+identical across both; the Laravel rebuild replaced the stack, not the API.)
 
 Base URL (dev): `http://localhost:4000/api`
 
@@ -34,7 +38,7 @@ outside local dev.
 2. `POST /auth/login/verify-otp` `{ loginToken, otp }` → `{ citizenId, accessToken, refreshToken, expiresIn }`
 
 ### Refresh
-`POST /auth/refresh` `{ refreshToken }` → `{ accessToken, expiresIn }`
+`POST /auth/refresh` `{ refreshToken }` → `{ accessToken, refreshToken, expiresIn }`
 
 All authenticated citizen endpoints take `Authorization: Bearer <accessToken>`.
 
@@ -62,7 +66,7 @@ All authenticated citizen endpoints take `Authorization: Bearer <accessToken>`.
 **The PRD's own field lists (sections 5A-5F) were never attached** - they
 just say "Pick from the Attached file shared" with no attachment. The
 fields below are reasonable placeholders pending the real lists, defined
-in `backend/src/config/formSchemas.js`:
+in `backend/config/form_schemas.php`:
 
 **early_birth** - required `formData`: `childFullName`, `childSex`,
 `childDateOfBirth`, `placeOfBirth`, `motherFullName`,
@@ -113,7 +117,7 @@ Delivery` - collapsed here; see "Known gaps".)
 - `POST /staff/applications/:id/complete` → → `COMPLETED`
 - `POST /staff/applications/:id/reject` `{ reason }` → → `REJECTED`
 
-Dev seed accounts (non-production only, see `backend/src/db/index.js`):
+Dev seed accounts (non-production only, see `backend/database/seeders/DatabaseSeeder.php`):
 `ADM-001` / `OFF-001` / `SUP-001` / `FIN-001`, all password `changeme123`.
 
 ### Admin config (PRD 9.1, ADMIN role only)
@@ -124,7 +128,7 @@ Dev seed accounts (non-production only, see `backend/src/db/index.js`):
 ## Security notes
 
 - CORS is restricted to `FRONTEND_ORIGIN` (comma-separated list, defaults to `http://localhost:5173`) - requests from other origins are rejected.
-- OTP-send, OTP-verify, citizen login, and staff login are all rate-limited (see `backend/src/middleware/rateLimit.js`) to slow down SMS-bombing and brute-force attempts.
+- OTP-send, OTP-verify, citizen login, and staff login are all rate-limited (see `backend/app/Providers/AppServiceProvider.php`) to slow down SMS-bombing and brute-force attempts.
 
 ## Known gaps vs. the full PRD
 

@@ -18,7 +18,9 @@ prd_extracted.txt
 .DS_Store
 Thumbs.db
 
-# Backend runtime data
+# Backend runtime data (Laravel has its own backend/.gitignore for
+# vendor/.env/storage; this just keeps the old Node-era paths ignored on
+# branches that still have them)
 backend/.env
 backend/data/
 backend/uploads/

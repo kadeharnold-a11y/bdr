@@ -2,6 +2,7 @@
 import { ref, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import CitizenLayout from '../layouts/CitizenLayout.vue'
+import { api } from '../lib/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -9,8 +10,15 @@ const router = useRouter()
 const searchInput = ref('')
 const trackingId = ref('')
 const isSearching = ref(false)
+const notFound = ref(false)
+const tier = ref('')
+const eventType = ref('')
+const rejected = ref(false)
 
-// Mock status data based on the PRD
+// PRD's status stages are more granular (Verifying Documents, Awaiting
+// Approval as separate steps) than what the backend actually models - see
+// shared/api-contract.md's "Application status values" note. Real statuses
+// collapse onto the closest matching stage here.
 const statusStages = [
   { id: 'submitted', label: 'Application Submitted', description: 'Payment confirmed. Awaiting assignment.' },
   { id: 'review', label: 'Under Review', description: 'Assigned to Registration Officer for initial review.' },
@@ -20,12 +28,21 @@ const statusStages = [
   { id: 'completed', label: 'Completed', description: 'Certificate ready for collection/delivery.' },
 ]
 
+const STATUS_TO_STAGE = {
+  SUBMITTED: 0,
+  UNDER_REVIEW: 1,
+  CORRECTIONS_REQUIRED: 1,
+  AWAITING_APPROVAL: 3,
+  APPROVED: 4,
+  COMPLETED: 5,
+}
+
 const currentStageIndex = ref(-1)
 
 function handleSearch() {
   const query = searchInput.value.trim().toUpperCase()
   if (!query) return
-  
+
   router.push({ name: 'track', query: { id: query } })
 }
 
@@ -35,16 +52,28 @@ async function loadTrackingInfo(id) {
     currentStageIndex.value = -1
     return
   }
-  
+
   trackingId.value = id
   searchInput.value = id
   isSearching.value = true
-  
+  notFound.value = false
+  rejected.value = false
+
   try {
-    // Mock API call to fetch tracking info
-    await new Promise(r => setTimeout(r, 600))
-    // Hardcoded logic for demo: randomly pick a stage or default to 2
-    currentStageIndex.value = 2 // "Verifying Documents"
+    const { data } = await api.get(`/tracking/${encodeURIComponent(id)}`)
+    tier.value = data.tier
+    eventType.value = data.eventType
+    if (data.status === 'REJECTED') {
+      rejected.value = true
+      currentStageIndex.value = -1
+    } else {
+      currentStageIndex.value = STATUS_TO_STAGE[data.status] ?? 0
+    }
+  } catch (err) {
+    if (err.response?.status === 404) {
+      notFound.value = true
+    }
+    currentStageIndex.value = -1
   } finally {
     isSearching.value = false
   }
@@ -94,13 +123,28 @@ onMounted(() => {
       <p>Locating application...</p>
     </div>
 
+    <div v-else-if="trackingId && notFound" class="results-card card">
+      <p>No application found for tracking ID <strong>{{ trackingId }}</strong>. Double-check the ID and try again.</p>
+    </div>
+
+    <div v-else-if="trackingId && rejected" class="results-card card">
+      <div class="results-header">
+        <div>
+          <h2 class="results-title">Application Status</h2>
+          <p class="tracking-badge">{{ trackingId }}</p>
+        </div>
+        <div class="tier-badge">{{ tier === 'express' ? 'Express Service' : 'Standard Service' }}</div>
+      </div>
+      <p>This application was rejected. Log in to your dashboard for details and next steps.</p>
+    </div>
+
     <div v-else-if="trackingId && currentStageIndex >= 0" class="results-card card">
       <div class="results-header">
         <div>
           <h2 class="results-title">Application Status</h2>
           <p class="tracking-badge">{{ trackingId }}</p>
         </div>
-        <div class="tier-badge">Standard Service</div>
+        <div class="tier-badge">{{ tier === 'express' ? 'Express Service' : 'Standard Service' }}</div>
       </div>
 
       <div class="timeline">

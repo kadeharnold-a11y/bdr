@@ -1,7 +1,22 @@
 <script setup>
-import { reactive, ref, computed } from 'vue'
+import { reactive, ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import CitizenLayout from '../layouts/CitizenLayout.vue'
+import { api } from '../lib/api'
+
+// Only Early Birth Registration ('EB') is wired to the real backend - the
+// other 5 event types have real backend support too (see
+// shared/api-contract.md) but this form only collects birth-shaped fields,
+// so wiring them here would mean submitting the wrong data. They keep the
+// original local-only mock flow below until their own field sets are built.
+const EVENT_CODE_TO_TYPE = {
+  EB: 'early_birth',
+  LB: 'late_birth',
+  DR: 'death',
+  FD: 'foetal_death',
+  AD: 'adoption',
+  SR: 'surrogacy',
+}
 
 const router = useRouter()
 
@@ -16,39 +31,96 @@ const application = reactive({
   childLastName: '',
   dob: '',
   gender: '',
+  placeOfBirth: '',
   motherFullName: '',
   motherGhanaCard: '',
   fatherFullName: '',
+  informantFullName: '',
+  informantRelationship: 'Mother',
+  informantPhone: '',
   documentsUploaded: false,
   declarationAccepted: false,
   trackingId: '',
 })
 
 const errors = reactive({})
+const applicationId = ref('') // backend application ID - only set for the wired 'EB' path
+const submitError = ref('')
 
-// Event Catalog
-const events = [
-  { id: 'EB', title: 'Early Birth Registration', desc: 'Within 12 months of birth', icon: '👶' },
-  { id: 'LB', title: 'Late Birth Registration', desc: 'Over 12 months from birth', icon: '📝' },
-  { id: 'DR', title: 'Death Registration', desc: 'Register a death before burial', icon: '🕊️' },
-  { id: 'FD', title: 'Foetal Death', desc: 'Stillbirth at or after 28 weeks', icon: '🏥' },
-  { id: 'AD', title: 'Adoption', desc: 'Register an adopted child', icon: '👨‍👩‍👧' },
-  { id: 'SR', title: 'Surrogacy', desc: 'Assisted reproductive technology', icon: '🤝' },
-]
+// Event Catalog - fees/durations come from the real backend so citizens see
+// accurate pricing even for the 5 event types this form can't submit yet.
+const events = reactive([
+  { id: 'EB', title: 'Early Birth Registration', desc: 'Within 12 months of birth', icon: '👶', standardFee: null, expressFee: null },
+  { id: 'LB', title: 'Late Birth Registration', desc: 'Over 12 months from birth', icon: '📝', standardFee: null, expressFee: null },
+  { id: 'DR', title: 'Death Registration', desc: 'Register a death before burial', icon: '🕊️', standardFee: null, expressFee: null },
+  { id: 'FD', title: 'Foetal Death', desc: 'Stillbirth at or after 28 weeks', icon: '🏥', standardFee: null, expressFee: null },
+  { id: 'AD', title: 'Adoption', desc: 'Register an adopted child', icon: '👨‍👩‍👧', standardFee: null, expressFee: null },
+  { id: 'SR', title: 'Surrogacy', desc: 'Assisted reproductive technology', icon: '🤝', standardFee: null, expressFee: null },
+])
 
-function selectEvent(id) {
+onMounted(async () => {
+  try {
+    const { data } = await api.get('/applications/event-types')
+    for (const evt of events) {
+      const match = data.find((e) => e.eventType === EVENT_CODE_TO_TYPE[evt.id])
+      if (match) {
+        evt.standardFee = match.tiers.standard.fee
+        evt.expressFee = match.tiers.express?.fee ?? null
+      }
+    }
+  } catch {
+    // Fee lookup failing isn't fatal - the wizard still works, tier cards
+    // just won't show a live price until the fallback flat fee applies.
+  }
+})
+
+function selectedEvent() {
+  return events.find((e) => e.id === application.eventType)
+}
+
+async function selectEvent(id) {
   application.eventType = id
   currentStep.value = 'tier-selection'
 }
 
 // Tier Selection
-function selectTier(tier) {
+async function selectTier(tier) {
   application.tier = tier
+  submitError.value = ''
+
+  if (application.eventType === 'EB') {
+    try {
+      const { data } = await api.post('/applications', { eventType: 'early_birth', tier: tier.toLowerCase() })
+      applicationId.value = data.id
+    } catch {
+      submitError.value = 'Could not start your application. Please try again.'
+      return
+    }
+  }
+
   currentStep.value = 'form-subject'
 }
 
 // Navigation
-function nextStep(target) {
+// Saves the form fields collected so far to the real backend draft (EB only).
+async function syncFormData() {
+  if (application.eventType !== 'EB' || !applicationId.value) return
+  await api.patch(`/applications/${applicationId.value}`, {
+    formData: {
+      childFullName: `${application.childFirstName} ${application.childLastName}`.trim(),
+      childSex: application.gender === 'Male' ? 'M' : application.gender === 'Female' ? 'F' : '',
+      childDateOfBirth: application.dob,
+      placeOfBirth: application.placeOfBirth,
+      motherFullName: application.motherFullName,
+      motherGhanaCardNumber: application.motherGhanaCard,
+      informantFullName: application.informantFullName,
+      informantRelationshipToChild: application.informantRelationship,
+      informantPhone: application.informantPhone,
+    },
+  })
+}
+
+async function nextStep(target) {
   // Clear previous errors
   for (let key in errors) errors[key] = ''
 
@@ -58,13 +130,23 @@ function nextStep(target) {
     if (!application.childLastName) errors.childLastName = 'Required'
     if (!application.dob) errors.dob = 'Required'
     if (!application.gender) errors.gender = 'Required'
+    if (application.eventType === 'EB' && !application.placeOfBirth) errors.placeOfBirth = 'Required'
     if (Object.keys(errors).some(k => errors[k])) return
   } else if (currentStep.value === 'form-parent') {
     if (!application.motherFullName) errors.motherFullName = 'Required'
     if (!/^GHA-\d{9}-\d$/.test(application.motherGhanaCard)) errors.motherGhanaCard = 'Valid Ghana Card required (GHA-XXXXXXXXX-X)'
+    if (application.eventType === 'EB') {
+      if (!application.informantFullName) errors.informantFullName = 'Required'
+      if (!/^\d{9}$/.test(application.informantPhone)) errors.informantPhone = 'Enter a valid 9-digit Ghana mobile number'
+    }
     if (Object.keys(errors).some(k => errors[k])) return
   } else if (currentStep.value === 'document-upload') {
-    if (!application.documentsUploaded) {
+    if (application.eventType === 'EB') {
+      if (!docUploaded.hospitalBirthNotification || !docUploaded.parentGhanaCardCopy) {
+        alert('Please upload both required documents.')
+        return
+      }
+    } else if (!application.documentsUploaded) {
       alert('Please upload the required documents.')
       return
     }
@@ -73,6 +155,19 @@ function nextStep(target) {
       alert('You must accept the declaration to proceed.')
       return
     }
+  }
+
+  submitError.value = ''
+  try {
+    if (currentStep.value === 'form-subject' || currentStep.value === 'form-parent') {
+      await syncFormData()
+    }
+    if (currentStep.value === 'review' && application.eventType === 'EB') {
+      await api.post(`/applications/${applicationId.value}/submit`)
+    }
+  } catch (err) {
+    submitError.value = err.response?.data?.error?.message || 'Something went wrong saving your application. Please try again.'
+    return
   }
 
   currentStep.value = target
@@ -84,16 +179,19 @@ function prevStep(target) {
   window.scrollTo(0, 0)
 }
 
-function saveForLater() {
+async function saveForLater() {
   saving.value = true
-  setTimeout(() => {
-    saving.value = false
-    alert('Draft saved successfully! You can resume from your dashboard.')
+  try {
+    await syncFormData()
     router.push('/dashboard')
-  }, 1000)
+  } catch {
+    alert('Could not save your draft. Please try again.')
+  } finally {
+    saving.value = false
+  }
 }
 
-// Mock Upload
+// Mock Upload (used for the 5 event types this form isn't wired for yet)
 const uploading = ref(false)
 function mockUpload() {
   uploading.value = true
@@ -103,19 +201,71 @@ function mockUpload() {
   }, 1500)
 }
 
-// Payment & Submission
-const processingPayment = ref(false)
-function submitPayment() {
-  processingPayment.value = true
-  setTimeout(() => {
-    processingPayment.value = false
-    application.trackingId = `BDR-2026-${application.eventType}-00${Math.floor(Math.random() * 10000)}`
-    currentStep.value = 'success'
-  }, 2000)
+// Real document upload (EB only) - two required slots per
+// config/form_schemas.php's early_birth schema.
+const docUploaded = reactive({ hospitalBirthNotification: false, parentGhanaCardCopy: false })
+const docUploading = reactive({ hospitalBirthNotification: false, parentGhanaCardCopy: false })
+const fileInputs = {}
+
+function triggerFilePicker(fieldName) {
+  fileInputs[fieldName]?.click()
 }
 
-// Helpers
-const fee = computed(() => application.tier === 'Express' ? '150.00' : '50.00')
+async function onFileSelected(fieldName, event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+
+  docUploading[fieldName] = true
+  try {
+    const form = new FormData()
+    form.append('fieldName', fieldName)
+    form.append('file', file)
+    await api.post(`/applications/${applicationId.value}/documents`, form)
+    docUploaded[fieldName] = true
+  } catch {
+    alert('Upload failed. Please try again.')
+  } finally {
+    docUploading[fieldName] = false
+  }
+}
+
+// Payment & Submission
+const processingPayment = ref(false)
+async function submitPayment() {
+  processingPayment.value = true
+  submitError.value = ''
+  try {
+    if (application.eventType === 'EB') {
+      const { data: initiated } = await api.post('/payments/initiate', {
+        applicationId: applicationId.value,
+        method: 'momo',
+      })
+      const { data: confirmed } = await api.post('/payments/mock-confirm', { paymentId: initiated.paymentId })
+      application.trackingId = confirmed.trackingId
+      currentStep.value = 'success'
+    } else {
+      // Other event types aren't wired to real payments yet - keep the
+      // existing local-only demo behavior rather than charging for
+      // something the backend form doesn't actually support.
+      await new Promise((r) => setTimeout(r, 1500))
+      application.trackingId = `BDR-2026-${application.eventType}-00${Math.floor(Math.random() * 10000)}`
+      currentStep.value = 'success'
+    }
+  } catch (err) {
+    submitError.value = err.response?.data?.error?.message || 'Payment failed. Please try again.'
+  } finally {
+    processingPayment.value = false
+  }
+}
+
+// Helpers - real fee once the event-types catalogue has loaded, falling
+// back to the old flat placeholder before that.
+const fee = computed(() => {
+  const evt = selectedEvent()
+  const real = application.tier === 'Express' ? evt?.expressFee : evt?.standardFee
+  if (real != null) return real.toFixed(2)
+  return application.tier === 'Express' ? '150.00' : '50.00'
+})
 
 </script>
 
@@ -155,7 +305,7 @@ const fee = computed(() => application.tier === 'Express' ? '150.00' : '50.00')
           <div class="tier-card standard">
             <div class="tier-header">
               <h2>Standard Service</h2>
-              <p class="price">GHS 50.00</p>
+              <p class="price">GHS {{ (selectedEvent()?.standardFee ?? 50).toFixed(2) }}</p>
             </div>
             <ul class="tier-features">
               <li><span class="check">✓</span> 15 working days processing</li>
@@ -170,7 +320,7 @@ const fee = computed(() => application.tier === 'Express' ? '150.00' : '50.00')
             <div class="tier-header">
               <div class="badge-express">Priority</div>
               <h2>Express Service</h2>
-              <p class="price">GHS 150.00</p>
+              <p class="price">GHS {{ (selectedEvent()?.expressFee ?? 150).toFixed(2) }}</p>
             </div>
             <ul class="tier-features">
               <li><span class="check">✓</span> 3 working days processing (Guaranteed)</li>
@@ -217,8 +367,15 @@ const fee = computed(() => application.tier === 'Express' ? '150.00' : '50.00')
               </select>
               <span class="error-msg" v-if="errors.gender">{{ errors.gender }}</span>
             </div>
+            <div class="field-group" v-if="application.eventType === 'EB'">
+              <label>Place of Birth</label>
+              <input v-model="application.placeOfBirth" type="text" placeholder="e.g. Korle Bu Teaching Hospital" class="input" :class="{'has-error': errors.placeOfBirth}" />
+              <span class="error-msg" v-if="errors.placeOfBirth">{{ errors.placeOfBirth }}</span>
+            </div>
           </div>
         </div>
+
+        <p class="error-msg" style="text-align: center;" v-if="submitError">{{ submitError }}</p>
 
         <div class="form-actions">
           <button class="btn-ghost" @click="saveForLater" :disabled="saving">
@@ -259,7 +416,36 @@ const fee = computed(() => application.tier === 'Express' ? '150.00' : '50.00')
               <input v-model="application.fatherFullName" type="text" class="input" />
             </div>
           </div>
+
+          <template v-if="application.eventType === 'EB'">
+            <hr class="divider" />
+            <h2 class="card-title">Informant's Details</h2>
+            <p class="text-muted" style="margin: -8px 0 16px;">Whoever is submitting this registration on the child's behalf.</p>
+            <div class="form-grid">
+              <div class="field-group">
+                <label>Full Name</label>
+                <input v-model="application.informantFullName" type="text" class="input" :class="{'has-error': errors.informantFullName}" />
+                <span class="error-msg" v-if="errors.informantFullName">{{ errors.informantFullName }}</span>
+              </div>
+              <div class="field-group">
+                <label>Relationship to Child</label>
+                <select v-model="application.informantRelationship" class="input">
+                  <option value="Mother">Mother</option>
+                  <option value="Father">Father</option>
+                  <option value="Guardian">Guardian</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label>Phone Number</label>
+                <input v-model="application.informantPhone" type="tel" inputmode="numeric" maxlength="9" placeholder="24 000 0000" class="input" :class="{'has-error': errors.informantPhone}" @input="application.informantPhone = application.informantPhone.replace(/\D/g, '')" />
+                <span class="error-msg" v-if="errors.informantPhone">{{ errors.informantPhone }}</span>
+              </div>
+            </div>
+          </template>
         </div>
+
+        <p class="error-msg" style="text-align: center;" v-if="submitError">{{ submitError }}</p>
 
         <div class="form-actions">
           <button class="btn-ghost" @click="saveForLater" :disabled="saving">Save for Later</button>
@@ -274,10 +460,49 @@ const fee = computed(() => application.tier === 'Express' ? '150.00' : '50.00')
           <div class="progress-indicator">Step 3 of 4 — Supporting Documents</div>
         </div>
 
-        <div class="card">
+        <div class="card" v-if="application.eventType === 'EB'">
           <h2 class="card-title">Upload Documents</h2>
           <p class="text-muted">Accepted formats: PDF, JPG, PNG (Max 5MB each).</p>
-          
+
+          <div class="upload-zone" :class="{'is-uploaded': docUploaded.hospitalBirthNotification}" style="margin-bottom: 16px;">
+            <input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display: none;" :ref="(el) => (fileInputs.hospitalBirthNotification = el)" @change="onFileSelected('hospitalBirthNotification', $event)" />
+            <template v-if="!docUploaded.hospitalBirthNotification">
+              <div v-if="docUploading.hospitalBirthNotification" class="spinner"></div>
+              <div v-else>
+                <div class="upload-icon">📄</div>
+                <p><strong>Hospital Birth Notification</strong></p>
+                <button class="btn-outline" style="margin-top: 16px;" @click="triggerFilePicker('hospitalBirthNotification')">Select File</button>
+              </div>
+            </template>
+            <template v-else>
+              <div class="success-icon">✓</div>
+              <p>Hospital birth notification uploaded successfully.</p>
+              <button class="btn-ghost" @click="docUploaded.hospitalBirthNotification = false">Remove</button>
+            </template>
+          </div>
+
+          <div class="upload-zone" :class="{'is-uploaded': docUploaded.parentGhanaCardCopy}">
+            <input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display: none;" :ref="(el) => (fileInputs.parentGhanaCardCopy = el)" @change="onFileSelected('parentGhanaCardCopy', $event)" />
+            <template v-if="!docUploaded.parentGhanaCardCopy">
+              <div v-if="docUploading.parentGhanaCardCopy" class="spinner"></div>
+              <div v-else>
+                <div class="upload-icon">📄</div>
+                <p><strong>Parent's Ghana Card Copy</strong></p>
+                <button class="btn-outline" style="margin-top: 16px;" @click="triggerFilePicker('parentGhanaCardCopy')">Select File</button>
+              </div>
+            </template>
+            <template v-else>
+              <div class="success-icon">✓</div>
+              <p>Parent's Ghana Card copy uploaded successfully.</p>
+              <button class="btn-ghost" @click="docUploaded.parentGhanaCardCopy = false">Remove</button>
+            </template>
+          </div>
+        </div>
+
+        <div class="card" v-else>
+          <h2 class="card-title">Upload Documents</h2>
+          <p class="text-muted">Accepted formats: PDF, JPG, PNG (Max 5MB each).</p>
+
           <div class="upload-zone" :class="{'is-uploaded': application.documentsUploaded}">
             <template v-if="!application.documentsUploaded">
               <div v-if="uploading" class="spinner"></div>
@@ -319,12 +544,14 @@ const fee = computed(() => application.tier === 'Express' ? '150.00' : '50.00')
             <p><strong>Name:</strong> {{ application.childFirstName }} {{ application.childLastName }}</p>
             <p><strong>DOB:</strong> {{ application.dob }}</p>
             <p><strong>Gender:</strong> {{ application.gender }}</p>
+            <p v-if="application.eventType === 'EB'"><strong>Place of Birth:</strong> {{ application.placeOfBirth }}</p>
           </div>
 
           <div class="review-section">
             <h3>Parent Details <button class="link-btn" @click="prevStep('form-parent')">Edit</button></h3>
             <p><strong>Mother:</strong> {{ application.motherFullName }} ({{ application.motherGhanaCard }})</p>
             <p v-if="application.fatherFullName"><strong>Father:</strong> {{ application.fatherFullName }}</p>
+            <p v-if="application.eventType === 'EB'"><strong>Informant:</strong> {{ application.informantFullName }} ({{ application.informantRelationship }}) - {{ application.informantPhone }}</p>
           </div>
 
           <div class="declaration">
@@ -334,6 +561,8 @@ const fee = computed(() => application.tier === 'Express' ? '150.00' : '50.00')
             </label>
           </div>
         </div>
+
+        <p class="error-msg" style="text-align: center;" v-if="submitError">{{ submitError }}</p>
 
         <div class="form-actions">
           <button class="btn-ghost" @click="saveForLater" :disabled="saving">Save for Later</button>
@@ -380,6 +609,8 @@ const fee = computed(() => application.tier === 'Express' ? '150.00' : '50.00')
               </div>
             </label>
           </div>
+
+          <p class="error-msg" style="text-align: center;" v-if="submitError">{{ submitError }}</p>
 
           <button class="btn-primary payment-btn" @click="submitPayment" :disabled="processingPayment">
             <span v-if="!processingPayment">Pay GHS {{ fee }}</span>

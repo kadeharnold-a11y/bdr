@@ -2,6 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import OtpInput from '../components/OtpInput.vue'
+import { api } from '../lib/api'
+import { saveSession } from '../lib/auth'
 
 const router = useRouter()
 
@@ -76,13 +78,26 @@ function validate() {
   return !errors.phone && !errors.pin
 }
 
+const formError = ref('')
+const loginToken = ref('')
+
 async function onSubmit() {
   if (!validate()) return
   submitting.value = true
+  formError.value = ''
   try {
-    // Mock API call
-    await new Promise((r) => setTimeout(r, 800))
+    const { data } = await api.post('/auth/login/send-otp', { phone: form.phone, pin: form.pin })
+    loginToken.value = data.loginToken
     goToOtp()
+  } catch (err) {
+    const code = err.response?.data?.error?.code
+    if (code === 'INVALID_CREDENTIALS') {
+      formError.value = 'Phone number or PIN is incorrect.'
+    } else if (code === 'TOO_MANY_REQUESTS') {
+      formError.value = 'Too many attempts. Please wait a few minutes and try again.'
+    } else {
+      formError.value = 'Something went wrong. Please try again.'
+    }
   } finally {
     submitting.value = false
   }
@@ -124,9 +139,15 @@ function backToCredentials() {
 
 async function resendCode() {
   if (resendSeconds.value > 0) return
-  otp.value = ''
   otpError.value = ''
-  startResendCountdown()
+  try {
+    const { data } = await api.post('/auth/login/send-otp', { phone: form.phone, pin: form.pin })
+    loginToken.value = data.loginToken
+    otp.value = ''
+    startResendCountdown()
+  } catch (err) {
+    otpError.value = err.response?.data?.error?.message || 'Something went wrong. Please try again.'
+  }
 }
 
 async function verifyOtp() {
@@ -137,9 +158,25 @@ async function verifyOtp() {
   verifying.value = true
   otpError.value = ''
   try {
-    await new Promise((r) => setTimeout(r, 800))
+    const { data } = await api.post('/auth/login/verify-otp', { loginToken: loginToken.value, otp: otp.value })
+    saveSession({ citizenId: data.citizenId, accessToken: data.accessToken, refreshToken: data.refreshToken })
+    // login/verify-otp doesn't return the citizen's name - fetch it once so
+    // the dashboard/sidebar can greet them by name like after registration.
+    try {
+      const me = await api.get('/citizens/me')
+      saveSession({ citizenId: data.citizenId, accessToken: data.accessToken, refreshToken: data.refreshToken, fullName: me.data.full_name })
+    } catch {
+      // Non-fatal - dashboard falls back to a generic greeting.
+    }
     clearInterval(resendTimer)
     router.push({ name: 'dashboard' })
+  } catch (err) {
+    const code = err.response?.data?.error?.code
+    otpError.value = code === 'OTP_EXPIRED'
+      ? 'That code has expired. Request a new one.'
+      : code === 'OTP_INCORRECT'
+        ? 'Incorrect code. Please try again.'
+        : err.response?.data?.error?.message || 'Something went wrong. Please try again.'
   } finally {
     verifying.value = false
   }
@@ -190,6 +227,8 @@ onBeforeUnmount(() => clearInterval(resendTimer))
               <label class="field-label">Your PIN</label>
               <OtpInput v-model="form.pin" mask :has-error="!!errors.pin" />
               <p class="field-error" v-if="errors.pin">{{ errors.pin }}</p>
+
+              <p class="field-error" style="text-align: center; margin-top: 20px;" v-if="formError">{{ formError }}</p>
 
               <button type="submit" class="btn-primary" :disabled="submitting">
                 <span v-if="!submitting">Sign In</span>

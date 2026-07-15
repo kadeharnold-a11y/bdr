@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { clearSession, getSession } from '../lib/auth'
+import { api } from '../lib/api'
 
 const router = useRouter()
 
@@ -17,7 +18,12 @@ const user = {
     .toUpperCase(),
 }
 
-function signOut() {
+async function signOut() {
+  try {
+    await api.post('/auth/logout')
+  } catch {
+    // Clear local session even if API call fails
+  }
   clearSession()
   router.push({ name: 'login' })
 }

@@ -4,7 +4,9 @@ namespace App\Providers;
 
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
+use App\Support\DeliveryConfig;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -30,5 +32,14 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('staff-login', fn (Request $request) => Limit::perMinutes(15, 10)
             ->by($request->input('staffId') ?: $request->ip()));
+
+        if (! $this->app->runningUnitTests()) {
+            foreach (DeliveryConfig::smsIssues() as $issue) {
+                Log::warning('[OTP][sms] '.$issue);
+            }
+            foreach (DeliveryConfig::emailIssues() as $issue) {
+                Log::warning('[OTP][email] '.$issue);
+            }
+        }
     }
 }

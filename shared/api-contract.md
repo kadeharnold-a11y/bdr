@@ -30,16 +30,24 @@ site's behavior (not phone + password, which an earlier draft assumed).
 validation already in `SignUp.vue`). `ghanaCardNumber` format: `GHA-XXXXXXXXX-X`.
 
 `channel` is `'phone'` (default) or `'email'` — picks where the OTP is
-delivered. `channel: 'email'` requires a valid `email`. **Email delivery is
-real** (Laravel Mail) once SMTP credentials are configured in `.env`
-(`MAIL_MAILER=smtp` + host/username/password); until then it falls back to
-Laravel's `log` driver, which writes the full email to
-`storage/logs/laravel.log` instead of sending it. **Phone delivery is
-always log-only** — no SMS gateway account exists (PRD 13/15.2).
+delivered. `channel: 'email'` requires a valid `email`.
 
-While `DEV_EXPOSE_OTP=true` (dev default), every OTP response also includes
-`devOtp` so you can test without configuring real delivery. Never enable
-that flag outside local dev.
+**OTP delivery is production-ready** once credentials are configured in
+`.env`:
+
+- **SMS (phone channel):** Hubtel Programmable SMS via `SMS_DRIVER=hubtel`,
+  `HUBTEL_CLIENT_ID`, `HUBTEL_CLIENT_SECRET`, `HUBTEL_SENDER_ID`.
+- **Email (email channel):** Laravel Mail SMTP (`MAIL_MAILER=smtp` +
+  host/username/password).
+
+If the chosen channel is not configured, OTP send returns a structured error
+(`SMS_NOT_CONFIGURED` or `EMAIL_NOT_CONFIGURED`) — no silent fallbacks, no
+hardcoded codes, no `devOtp` in API responses. Diagnose with
+`php artisan otp:verify-config` (add `--test-sms=` / `--test-email=` to
+send live test messages).
+
+`DEV_EXPOSE_OTP=true` may still log OTPs server-side for local debugging,
+but the API never returns the code to the client.
 
 ### Login
 1. `POST /auth/login/send-otp` `{ phone, pin, channel? }` → `{ loginToken, otpChannel, otpSentTo, otpExpiresInSeconds }`
@@ -230,11 +238,9 @@ this exists:
   hand in the DB.
 - No **NIA API integration** - always returns `UNAVAILABLE` (correctly,
   per the PRD's own design note, this doesn't block registration).
-- No **real SMS gateway** - `channel: 'phone'` OTPs are always logged
-  server-side and optionally echoed in dev responses, never actually
-  texted. `channel: 'email'` OTPs *do* really send via Laravel Mail once
-  SMTP credentials are configured (see Auth section above).
 - No **real Npontu Pay integration** - mock mode only, no sandbox creds.
+- **SMS/email OTP delivery** requires Hubtel + SMTP credentials in `.env`
+  (see Auth section). Code is ready; credentials are environment-specific.
 - 2FA (TOTP) is now implemented and mandatory for staff, but there's no
   recovery-code / backup-device flow if someone loses their authenticator.
 - Certificate PDF generation + QR verification now exist (see Certificates

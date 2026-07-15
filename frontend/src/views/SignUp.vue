@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import OtpInput from '../components/OtpInput.vue'
 import { api } from '../lib/api'
 import { saveSession } from '../lib/auth'
+import { otpDestinationLabel, otpErrorMessage } from '../lib/otpErrors'
 
 const router = useRouter()
 
@@ -78,7 +79,7 @@ const form = reactive({
 
 // Where the verification code gets delivered - independent of the account's
 // phone number, which is always required as the login identifier.
-const channel = ref('phone') // 'phone' | 'email'
+const channel = ref('email') // 'phone' | 'email'
 
 const errors = reactive({
   phone: '',
@@ -89,9 +90,11 @@ const errors = reactive({
 const submitting = ref(false)
 const registrationToken = ref('')
 const profileToken = ref('')
+const otpChannel = ref('email')
+const otpSentTo = ref('')
 
 function extractApiError(err) {
-  return err?.response?.data?.error?.message || 'Something went wrong. Please try again.'
+  return otpErrorMessage(err)
 }
 
 function validate() {
@@ -99,8 +102,8 @@ function validate() {
   errors.email = ''
   errors.form = ''
 
-  if (!/^\d{9,10}$/.test(form.phone)) {
-    errors.phone = 'Enter a valid Ghana mobile number (digits only, no +233 or 0 prefix).'
+  if (!/^\d{9}$/.test(form.phone)) {
+    errors.phone = 'Enter a valid 9-digit Ghana mobile number (no +233 or leading 0).'
   }
   if (channel.value === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
     errors.email = 'Enter a valid email address to receive your code.'
@@ -120,6 +123,8 @@ async function onSubmit() {
       channel: channel.value,
     })
     registrationToken.value = data.registrationToken
+    otpChannel.value = data.otpChannel
+    otpSentTo.value = data.otpSentTo
     goToOtp()
   } catch (err) {
     const code = err.response?.data?.error?.code
@@ -129,6 +134,8 @@ async function onSubmit() {
       errors.phone = extractApiError(err)
     } else if (code === 'INVALID_EMAIL') {
       errors.email = extractApiError(err)
+    } else if (code === 'OTP_DELIVERY_FAILED' || code === 'SMS_NOT_CONFIGURED' || code === 'SMS_DELIVERY_FAILED' || code === 'EMAIL_NOT_CONFIGURED' || code === 'EMAIL_DELIVERY_FAILED') {
+      errors.form = extractApiError(err)
     } else {
       errors.form = extractApiError(err)
     }
@@ -175,6 +182,8 @@ async function resendCode() {
       channel: channel.value,
     })
     registrationToken.value = data.registrationToken
+    otpChannel.value = data.otpChannel
+    otpSentTo.value = data.otpSentTo
     otp.value = ''
     startResendCountdown()
   } catch (err) {
@@ -184,7 +193,7 @@ async function resendCode() {
 
 async function verifyOtp() {
   if (otp.value.length !== 6) {
-    otpError.value = 'Enter the 6-digit code sent to your phone.'
+    otpError.value = 'Enter the 6-digit code we sent you.'
     return
   }
   verifying.value = true
@@ -198,12 +207,7 @@ async function verifyOtp() {
     clearInterval(resendTimer)
     step.value = 'profile'
   } catch (err) {
-    const code = err.response?.data?.error?.code
-    otpError.value = code === 'OTP_EXPIRED'
-      ? 'That code has expired. Request a new one.'
-      : code === 'OTP_INCORRECT'
-        ? 'Incorrect code. Please try again.'
-        : extractApiError(err)
+    otpError.value = otpErrorMessage(err)
   } finally {
     verifying.value = false
   }
@@ -341,7 +345,7 @@ onBeforeUnmount(() => clearInterval(resendTimer))
                 type="tel"
                 placeholder="24 000 0000"
                 inputmode="numeric"
-                maxlength="10"
+                  maxlength="9"
                 @input="form.phone = form.phone.replace(/\D/g, '')"
               />
             </div>
@@ -408,7 +412,8 @@ onBeforeUnmount(() => clearInterval(resendTimer))
           <h2 class="form-title">Verify your {{ channel === 'email' ? 'email' : 'number' }}</h2>
           <p class="form-help">
             Enter the 6-digit code we sent by {{ channel === 'email' ? 'email to' : 'SMS to' }}
-            <strong>{{ channel === 'email' ? form.email : maskedPhone }}</strong>. The code is valid for 10 minutes.
+            <strong>{{ otpDestinationLabel(channel, otpSentTo || form.email, maskedPhone) }}</strong>.
+            The code is valid for 10 minutes.
           </p>
 
           <form @submit.prevent="verifyOtp" novalidate>

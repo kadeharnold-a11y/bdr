@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import OtpInput from '../components/OtpInput.vue'
 import { api } from '../lib/api'
 import { saveSession } from '../lib/auth'
+import { otpDestinationLabel, otpErrorMessage } from '../lib/otpErrors'
 
 const router = useRouter()
 
@@ -58,6 +59,8 @@ const form = reactive({
   pin: '',
 })
 
+const channel = ref('phone') // 'phone' | 'email'
+
 const errors = reactive({
   phone: '',
   pin: '',
@@ -69,8 +72,8 @@ function validate() {
   errors.phone = ''
   errors.pin = ''
 
-  if (!/^\d{9,10}$/.test(form.phone)) {
-    errors.phone = 'Enter a valid Ghana mobile number.'
+  if (!/^\d{9}$/.test(form.phone)) {
+    errors.phone = 'Enter a valid 9-digit Ghana mobile number.'
   }
   if (form.pin.length !== 6) {
     errors.pin = 'Enter your 6-digit PIN.'
@@ -80,19 +83,33 @@ function validate() {
 
 const formError = ref('')
 const loginToken = ref('')
+const otpChannel = ref('phone')
+const otpSentTo = ref('')
 
 async function onSubmit() {
   if (!validate()) return
   submitting.value = true
   formError.value = ''
   try {
-    const { data } = await api.post('/auth/login/send-otp', { phone: form.phone, pin: form.pin })
+    const { data } = await api.post('/auth/login/send-otp', {
+      phone: form.phone,
+      pin: form.pin,
+      channel: channel.value,
+    })
     loginToken.value = data.loginToken
+    otpChannel.value = data.otpChannel
+    otpSentTo.value = data.otpSentTo
     goToOtp()
   } catch (err) {
     const code = err.response?.data?.error?.code
     if (code === 'INVALID_CREDENTIALS') {
       formError.value = 'Phone number or PIN is incorrect.'
+    } else if (code === 'NO_EMAIL_ON_FILE') {
+      formError.value = otpErrorMessage(err)
+    } else if (code === 'OTP_DELIVERY_FAILED' || code === 'SMS_NOT_CONFIGURED' || code === 'SMS_DELIVERY_FAILED') {
+      formError.value = otpErrorMessage(err)
+    } else if (code === 'EMAIL_NOT_CONFIGURED' || code === 'EMAIL_DELIVERY_FAILED') {
+      formError.value = otpErrorMessage(err)
     } else if (code === 'TOO_MANY_REQUESTS') {
       formError.value = 'Too many attempts. Please wait a few minutes and try again.'
     } else {
@@ -141,18 +158,24 @@ async function resendCode() {
   if (resendSeconds.value > 0) return
   otpError.value = ''
   try {
-    const { data } = await api.post('/auth/login/send-otp', { phone: form.phone, pin: form.pin })
+    const { data } = await api.post('/auth/login/send-otp', {
+      phone: form.phone,
+      pin: form.pin,
+      channel: channel.value,
+    })
     loginToken.value = data.loginToken
+    otpChannel.value = data.otpChannel
+    otpSentTo.value = data.otpSentTo
     otp.value = ''
     startResendCountdown()
   } catch (err) {
-    otpError.value = err.response?.data?.error?.message || 'Something went wrong. Please try again.'
+    otpError.value = otpErrorMessage(err)
   }
 }
 
 async function verifyOtp() {
   if (otp.value.length !== 6) {
-    otpError.value = 'Enter the 6-digit code sent to your phone.'
+    otpError.value = 'Enter the 6-digit code we sent you.'
     return
   }
   verifying.value = true
@@ -171,12 +194,7 @@ async function verifyOtp() {
     clearInterval(resendTimer)
     router.push({ name: 'dashboard' })
   } catch (err) {
-    const code = err.response?.data?.error?.code
-    otpError.value = code === 'OTP_EXPIRED'
-      ? 'That code has expired. Request a new one.'
-      : code === 'OTP_INCORRECT'
-        ? 'Incorrect code. Please try again.'
-        : err.response?.data?.error?.message || 'Something went wrong. Please try again.'
+    otpError.value = otpErrorMessage(err)
   } finally {
     verifying.value = false
   }
@@ -218,7 +236,7 @@ onBeforeUnmount(() => clearInterval(resendTimer))
                   type="tel"
                   placeholder="24 000 0000"
                   inputmode="numeric"
-                  maxlength="10"
+                  maxlength="9"
                   @input="form.phone = form.phone.replace(/\D/g, '')"
                 />
               </div>
@@ -229,6 +247,33 @@ onBeforeUnmount(() => clearInterval(resendTimer))
               <p class="field-error" v-if="errors.pin">{{ errors.pin }}</p>
 
               <p class="field-error" style="text-align: center; margin-top: 20px;" v-if="formError">{{ formError }}</p>
+
+              <label class="field-label">Send my code by</label>
+              <div class="channel-toggle" role="radiogroup" aria-label="Verification code delivery method">
+                <button
+                  type="button"
+                  class="channel-option"
+                  :class="{ active: channel === 'phone' }"
+                  role="radio"
+                  :aria-checked="channel === 'phone'"
+                  @click="channel = 'phone'"
+                >
+                  📱 Text message
+                </button>
+                <button
+                  type="button"
+                  class="channel-option"
+                  :class="{ active: channel === 'email' }"
+                  role="radio"
+                  :aria-checked="channel === 'email'"
+                  @click="channel = 'email'"
+                >
+                  ✉️ Email
+                </button>
+              </div>
+              <p class="field-hint" v-if="channel === 'email'">
+                The code goes to the email address saved on your account.
+              </p>
 
               <button type="submit" class="btn-primary" :disabled="submitting">
                 <span v-if="!submitting">Sign In</span>
@@ -247,7 +292,9 @@ onBeforeUnmount(() => clearInterval(resendTimer))
             <button type="button" class="back-link" @click="backToCredentials">← Back</button>
             <h2 class="form-title">Verification Required</h2>
             <p class="form-help">
-              For your security, enter the 6-digit code we sent by SMS to <strong>{{ maskedPhone }}</strong>.
+              For your security, enter the 6-digit code we sent by
+              {{ otpChannel === 'email' ? 'email to' : 'SMS to' }}
+              <strong>{{ otpDestinationLabel(otpChannel, otpSentTo, maskedPhone) }}</strong>.
             </p>
 
             <form @submit.prevent="verifyOtp" novalidate>
@@ -525,6 +572,37 @@ onBeforeUnmount(() => clearInterval(resendTimer))
 .link-button:disabled {
   color: var(--text-muted);
   cursor: not-allowed;
+}
+
+.field-hint {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.channel-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.channel-option {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 12px;
+  background: var(--surface);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+}
+
+.channel-option.active {
+  border-color: var(--brand-green);
+  background: rgba(0, 107, 63, 0.08);
+  color: var(--brand-green);
 }
 
 .back-link {

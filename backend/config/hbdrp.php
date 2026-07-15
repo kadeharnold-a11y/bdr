@@ -6,6 +6,8 @@ return [
     // any shared/prod env.
     'dev_expose_otp' => env('DEV_EXPOSE_OTP', false),
 
+    'otp_ttl_seconds' => (int) env('OTP_TTL_SECONDS', 600),
+
     // Npontu Pay (sandbox creds not yet provided - PRD 15.2 assumptions).
     // Payments run in mock mode until real credentials exist.
     'npontu_pay_mode' => env('NPONTU_PAY_MODE', 'mock'),

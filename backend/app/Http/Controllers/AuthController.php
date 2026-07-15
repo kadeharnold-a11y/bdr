@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\OtpDeliveryException;
 use App\Models\AuthSession;
 use App\Models\Citizen;
+use App\Support\DeliveryConfig;
 use App\Support\Otp;
 use App\Support\Tokens;
 use Illuminate\Http\JsonResponse;
@@ -22,9 +24,16 @@ class AuthController extends Controller
         return response()->json(['error' => ['code' => $code, 'message' => $message]], $status);
     }
 
-    private function withDevOtp(array $payload, AuthSession $session): array
+    private function otpVerifyMessage(string $code): string
     {
-        return Otp::expose() ? [...$payload, 'devOtp' => $session->otp_code] : $payload;
+        return match ($code) {
+            'SESSION_NOT_FOUND' => 'Your verification session has expired. Request a new code.',
+            'OTP_EXPIRED' => 'That code has expired. Request a new one.',
+            'OTP_INCORRECT' => 'Incorrect code. Please try again.',
+            'OTP_ALREADY_USED' => 'This code has already been used. Request a new one.',
+            'INVALID_OTP_FORMAT' => 'Enter the 6-digit verification code.',
+            default => 'OTP verification failed.',
+        };
     }
 
     // --- Registration (PRD 4.1) -----------------------------------------
@@ -44,28 +53,39 @@ class AuthController extends Controller
         if ($channel === 'email' && (! is_string($email) || ! filter_var($email, FILTER_VALIDATE_EMAIL))) {
             return $this->error('INVALID_EMAIL', 'Enter a valid email address to receive the code by email', 400);
         }
-        if ($email !== null && ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        if ($email !== null && $email !== '' && ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
             return $this->error('INVALID_EMAIL', 'Enter a valid email address', 400);
         }
         if (Citizen::where('phone', $phone)->exists()) {
             return $this->error('PHONE_ALREADY_REGISTERED', 'This phone number already has an account. Please log in instead.', 409);
         }
 
-        $session = Otp::start('register', $phone, profile: ['email' => $email], channel: $channel, email: $email);
+        if ($channel === 'phone' && ! DeliveryConfig::smsReady()) {
+            return $this->error('SMS_NOT_CONFIGURED', implode(' ', DeliveryConfig::smsIssues()), 503);
+        }
+        if ($channel === 'email' && ! DeliveryConfig::emailReady()) {
+            return $this->error('EMAIL_NOT_CONFIGURED', implode(' ', DeliveryConfig::emailIssues()), 503);
+        }
 
-        return response()->json($this->withDevOtp([
+        try {
+            $session = Otp::start('register', $phone, profile: ['email' => $email], channel: $channel, email: $email);
+        } catch (OtpDeliveryException $e) {
+            return $this->error($e->errorCode, $e->getMessage(), 503);
+        }
+
+        return response()->json([
             'registrationToken' => $session->token,
             'otpChannel' => $channel,
-            'otpSentTo' => $channel === 'email' ? $email : $phone,
-            'otpExpiresInSeconds' => Otp::TTL_SECONDS,
-        ], $session));
+            'otpSentTo' => $session->delivery_target,
+            'otpExpiresInSeconds' => Otp::ttlSeconds(),
+        ]);
     }
 
     public function registerVerifyOtp(Request $request): JsonResponse
     {
         $result = Otp::verify($request->input('registrationToken'), $request->input('otp'));
         if (! $result['ok']) {
-            return $this->error($result['error'], 'OTP verification failed', 400);
+            return $this->error($result['error'], $this->otpVerifyMessage($result['error']), 400);
         }
 
         return response()->json(['profileToken' => $result['session']->token]);
@@ -160,24 +180,37 @@ class AuthController extends Controller
             return $this->error('INVALID_CREDENTIALS', 'Phone number or PIN is incorrect', 401);
         }
         if ($channel === 'email' && ! $citizen->email) {
-            return $this->error('NO_EMAIL_ON_FILE', 'No email address is on file for this account', 400);
+            return $this->error('NO_EMAIL_ON_FILE', 'No email address is on file for this account. Use text message instead.', 400);
         }
 
-        $session = Otp::start('login', $phone, citizenId: $citizen->id, channel: $channel, email: $citizen->email);
+        if ($channel === 'phone' && ! DeliveryConfig::smsReady()) {
+            return $this->error('SMS_NOT_CONFIGURED', implode(' ', DeliveryConfig::smsIssues()), 503);
+        }
+        if ($channel === 'email' && ! DeliveryConfig::emailReady()) {
+            return $this->error('EMAIL_NOT_CONFIGURED', implode(' ', DeliveryConfig::emailIssues()), 503);
+        }
 
-        return response()->json($this->withDevOtp([
+        $deliveryEmail = $channel === 'email' ? $citizen->email : null;
+
+        try {
+            $session = Otp::start('login', $phone, citizenId: $citizen->id, channel: $channel, email: $deliveryEmail);
+        } catch (OtpDeliveryException $e) {
+            return $this->error($e->errorCode, $e->getMessage(), 503);
+        }
+
+        return response()->json([
             'loginToken' => $session->token,
             'otpChannel' => $channel,
-            'otpSentTo' => $channel === 'email' ? $citizen->email : $phone,
-            'otpExpiresInSeconds' => Otp::TTL_SECONDS,
-        ], $session));
+            'otpSentTo' => $session->delivery_target,
+            'otpExpiresInSeconds' => Otp::ttlSeconds(),
+        ]);
     }
 
     public function loginVerifyOtp(Request $request): JsonResponse
     {
         $result = Otp::verify($request->input('loginToken'), $request->input('otp'));
         if (! $result['ok']) {
-            return $this->error($result['error'], 'OTP verification failed', 400);
+            return $this->error($result['error'], $this->otpVerifyMessage($result['error']), 400);
         }
 
         $citizen = Citizen::find($result['session']->citizen_id);

@@ -25,10 +25,11 @@ class ApiContractTest extends TestCase
         $send = $this->postJson('/api/auth/register/send-otp', ['phone' => $phone, 'email' => $email]);
         $send->assertOk();
         $token = $send->json('registrationToken');
+        $otp = $this->otpFromLastSms();
 
         $this->postJson('/api/auth/register/verify-otp', [
             'registrationToken' => $token,
-            'otp' => $send->json('devOtp'),
+            'otp' => $otp,
         ])->assertOk();
 
         $this->postJson('/api/auth/register/profile', [
@@ -129,7 +130,20 @@ class ApiContractTest extends TestCase
 
     public function test_health_check(): void
     {
-        $this->getJson('/api/health')->assertOk()->assertJson(['status' => 'ok']);
+        $this->getJson('/api/health')
+            ->assertOk()
+            ->assertJsonPath('status', 'ok')
+            ->assertJsonStructure(['otpDelivery' => ['sms', 'email', 'otpTtlSeconds']]);
+    }
+
+    public function test_sms_not_configured_returns_actionable_error(): void
+    {
+        config(['sms.hubtel.client_id' => null, 'sms.hubtel.client_secret' => null]);
+
+        $this->postJson('/api/auth/register/send-otp', ['phone' => '244111224', 'channel' => 'phone'])
+            ->assertStatus(503)
+            ->assertJsonPath('error.code', 'SMS_NOT_CONFIGURED')
+            ->assertJsonPath('error.message', fn ($msg) => str_contains($msg, 'HUBTEL_CLIENT_ID'));
     }
 
     public function test_registration_rejects_invalid_phone(): void
@@ -156,9 +170,13 @@ class ApiContractTest extends TestCase
             ->assertJsonPath('otpChannel', 'email')
             ->assertJsonPath('otpSentTo', 'kwame@example.com');
 
-        Mail::assertSent(OtpMail::class, function (OtpMail $mail) use ($send) {
-            return $mail->code === $send->json('devOtp') && $mail->hasTo('kwame@example.com');
-        });
+        Mail::assertSent(OtpMail::class, fn (OtpMail $mail) => $mail->hasTo('kwame@example.com'));
+
+        $otp = $this->otpFromLastEmail();
+        $this->postJson('/api/auth/register/verify-otp', [
+            'registrationToken' => $send->json('registrationToken'),
+            'otp' => $otp,
+        ])->assertOk();
     }
 
     public function test_registration_rejects_invalid_channel(): void
@@ -181,12 +199,30 @@ class ApiContractTest extends TestCase
     {
         $send = $this->postJson('/api/auth/register/send-otp', ['phone' => '244111222']);
         $token = $send->json('registrationToken');
+        $otp = $this->otpFromLastSms();
         AuthSession::find($token)->update(['otp_expires_at' => now()->subMinute()]);
 
         $this->postJson('/api/auth/register/verify-otp', [
             'registrationToken' => $token,
-            'otp' => $send->json('devOtp'),
+            'otp' => $otp,
         ])->assertStatus(400)->assertJsonPath('error.code', 'OTP_EXPIRED');
+    }
+
+    public function test_registration_rejects_reused_otp(): void
+    {
+        $send = $this->postJson('/api/auth/register/send-otp', ['phone' => '244111223']);
+        $token = $send->json('registrationToken');
+        $otp = $this->otpFromLastSms();
+
+        $this->postJson('/api/auth/register/verify-otp', [
+            'registrationToken' => $token,
+            'otp' => $otp,
+        ])->assertOk();
+
+        $this->postJson('/api/auth/register/verify-otp', [
+            'registrationToken' => $token,
+            'otp' => $otp,
+        ])->assertStatus(400)->assertJsonPath('error.code', 'OTP_ALREADY_USED');
     }
 
     public function test_full_registration_creates_citizen_and_duplicate_phone_is_rejected(): void
@@ -213,7 +249,7 @@ class ApiContractTest extends TestCase
 
         $this->postJson('/api/auth/login/verify-otp', [
             'loginToken' => $send->json('loginToken'),
-            'otp' => $send->json('devOtp'),
+            'otp' => $this->otpFromLastSms(),
         ])->assertOk()->assertJsonStructure(['citizenId', 'accessToken', 'refreshToken', 'expiresIn']);
     }
 

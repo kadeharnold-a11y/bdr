@@ -16,5 +16,6 @@ class AuthSession extends Model
         'profile' => 'array',
         'otp_verified' => 'boolean',
         'otp_expires_at' => 'datetime',
+        'otp_used_at' => 'datetime',
     ];
 }

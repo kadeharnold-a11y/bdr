@@ -1,11 +1,20 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
+import { clearStaffSession, getStaffSession } from '../lib/staffAuth'
+import { staffApi } from '../lib/staffApi'
 
 const router = useRouter()
+const session = getStaffSession()
 
-// TODO: replace with authenticated officer from auth store
-const officer = { name: 'Akua Mensah', role: 'Registration Officer', initials: 'AM' }
+const officer = computed(() => {
+  const name = session?.fullName || 'Officer'
+  return {
+    name,
+    role: session?.role?.replace(/_/g, ' ') || 'Staff',
+    initials: name.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase(),
+  }
+})
 
 const sidebarOpen = ref(false)
 
@@ -20,10 +29,17 @@ const icons = {
 
 const nav = [
   { label: 'Application Queue', to: '/officer/queue', icon: 'queue' },
-  { label: 'My Applications', to: '/officer/queue', icon: 'myApps' },
-  { label: 'Reports', to: '/officer/queue', icon: 'reports' },
-  { label: 'Settings', to: '/officer/queue', icon: 'settings' },
 ]
+
+async function signOut() {
+  try {
+    await staffApi.post('/staff/logout')
+  } catch {
+    // Clear local session even if API call fails
+  }
+  clearStaffSession()
+  router.push({ name: 'officer-login' })
+}
 </script>
 
 <template>
@@ -71,6 +87,10 @@ const nav = [
           {{ item.label }}
         </RouterLink>
         <div class="nav-divider"></div>
+        <button type="button" class="nav-link logout-link" @click="signOut">
+          <span class="nav-icon" v-html="icons.logout"></span>
+          Sign Out
+        </button>
         <RouterLink to="/dashboard" class="nav-link logout-link">
           <span class="nav-icon" v-html="icons.logout"></span>
           Back to Citizen Portal

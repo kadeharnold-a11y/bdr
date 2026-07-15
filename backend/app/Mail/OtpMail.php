@@ -15,6 +15,7 @@ class OtpMail extends Mailable
     public function __construct(
         public string $code,
         public string $purpose, // 'register' | 'login'
+        public int $ttlSeconds = 600,
     ) {}
 
     public function envelope(): Envelope
@@ -31,6 +32,7 @@ class OtpMail extends Mailable
             with: [
                 'code' => $this->code,
                 'purpose' => $this->purpose,
+                'expiresMinutes' => (int) ceil($this->ttlSeconds / 60),
             ],
         );
     }

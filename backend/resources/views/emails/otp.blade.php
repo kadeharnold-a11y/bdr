@@ -7,7 +7,7 @@ Your verification code for {{ $purpose === 'login' ? 'signing in' : 'creating yo
 # {{ $code }}
 </x-mail::panel>
 
-This code expires in 10 minutes. If you didn't request this, you can safely ignore this email.
+This code expires in {{ $expiresMinutes }} minutes. If you didn't request this, you can safely ignore this email.
 
 Thanks,<br>
 HBDRP

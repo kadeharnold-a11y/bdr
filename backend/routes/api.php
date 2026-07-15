@@ -9,13 +9,21 @@ use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\StaffAdminController;
 use App\Http\Controllers\StaffController;
 use App\Http\Controllers\TrackingController;
+use App\Support\DeliveryConfig;
 use Illuminate\Support\Facades\Route;
 
 // Full surface documented in shared/api-contract.md. Same URLs and response
 // shapes as the Express prototype so the frontend doesn't care which stack
 // serves them.
 
-Route::get('/health', fn () => response()->json(['status' => 'ok']));
+Route::get('/health', fn () => response()->json([
+    'status' => 'ok',
+    'otpDelivery' => [
+        'sms' => DeliveryConfig::smsStatus(),
+        'email' => DeliveryConfig::emailStatus(),
+        'otpTtlSeconds' => (int) config('hbdrp.otp_ttl_seconds', 600),
+    ],
+]));
 
 // --- Auth (public, rate-limited) -----------------------------------------
 Route::post('/auth/register/send-otp', [AuthController::class, 'registerSendOtp'])->middleware('throttle:otp-send');

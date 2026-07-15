@@ -55,6 +55,26 @@ const routes = [
     component: () => import('../views/TrackApplication.vue'),
   },
   {
+    path: '/applications',
+    name: 'applications',
+    component: () => import('../views/MyApplications.vue'),
+  },
+  {
+    path: '/certificates',
+    name: 'certificates',
+    component: () => import('../views/Certificates.vue'),
+  },
+  {
+    path: '/notifications',
+    name: 'notifications',
+    component: () => import('../views/Notifications.vue'),
+  },
+  {
+    path: '/profile',
+    name: 'profile',
+    component: () => import('../views/Profile.vue'),
+  },
+  {
     path: '/officer',
     redirect: '/officer/queue',
   },
@@ -77,7 +97,8 @@ const routes = [
   },
   {
     path: '/',
-    redirect: '/signup',
+    name: 'home',
+    component: () => import('../views/LandingPage.vue'),
   },
 ]
 
